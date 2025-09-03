@@ -1,0 +1,61 @@
+query GetQuantityDailyTB2($month: Int, $year: Int) {
+    GetQuantityDailyTB2(month: $month, year: $year) {
+        TimeStamp
+        Value
+    }
+}
+
+query GetQuantityMonthlyTB2($start: String, $end: String) {
+    GetQuantityMonthlyTB2(start: $start, end: $end) {
+        AvgValue
+        CountDay
+        TimeStamp
+        Value
+        IsEnoughData
+        StartDate
+        EndDate
+    }
+}
+
+query GetQuantityYearlyTB2($start: String, $end: String) {
+    GetQuantityYearlyTB2(start: $start, end: $end) {
+        AvgValue
+        CountDay
+        IsEnoughData
+        TimeStamp
+        Value
+        StartDate
+        EndDate
+    }
+}
+
+query GetManualIndexDailyTB2($month: Int, $year: Int) {
+    GetManualIndexDailyTB2(month: $month, year: $year) {
+        TimeStamp
+        Value
+    }
+}
+
+query GetManualIndexMonthlyTB2($start: String, $end: String) {
+    GetManualIndexMonthlyTB2(start: $start, end: $end) {
+        AvgValue
+        CountDay
+        TimeStamp
+        Value
+        IsEnoughData
+        StartDate
+        EndDate
+    }
+}
+
+query GetManualIndexYearlyTB2($start: String, $end: String) {
+    GetManualIndexYearlyTB2(start: $start, end: $end) {
+        AvgValue
+        CountDay
+        IsEnoughData
+        TimeStamp
+        Value
+        StartDate
+        EndDate
+    }
+}

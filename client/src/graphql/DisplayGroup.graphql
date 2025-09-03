@@ -1,0 +1,19 @@
+query GetDisplayGroups {
+    GetDisplayGroups {
+        Group
+        Name
+        _id
+    }
+}
+
+mutation InsertDisplayGroup($displayGroup: DisplayGroupInsertInput) {
+    InsertDisplayGroup(displayGroup: $displayGroup)
+}
+
+mutation UpdateDisplayGroup($displayGroup: DisplayGroupUpdateInput) {
+    UpdateDisplayGroup(displayGroup: $displayGroup)
+}
+
+mutation DeleteDisplayGroup($displayGroup: DisplayGroupUpdateInput) {
+    DeleteDisplayGroup(displayGroup: $displayGroup)
+}

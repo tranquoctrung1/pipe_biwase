@@ -1,0 +1,29 @@
+query GetDataIndexManuals {
+    GetDataIndexManuals {
+        SiteId
+        TimeStamp
+        Value
+        _id
+    }
+}
+
+query GetDataIndexManualBySiteId($siteid: String) {
+    GetDataIndexManualBySiteId(siteid: $siteid) {
+        SiteId
+        TimeStamp
+        Value
+        _id
+    }
+}
+
+mutation InsertManualIndex($data: ManualIndexInsertInput) {
+    InsertManualIndex(data: $data)
+}
+
+mutation UpdateManualIndex($data: ManualIndexUpdateInput) {
+    UpdateManualIndex(data: $data)
+}
+
+mutation DeleteManualIndex($data: ManualIndexUpdateInput) {
+    DeleteManualIndex(data: $data)
+}

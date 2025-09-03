@@ -1,0 +1,19 @@
+query GetDataDrawingPipe {
+    GetDataDrawingPipe {
+        GroupPipeId
+        GroupPipeName
+        Pipes {
+            BaseMax
+            BaseMin
+            Length
+            Lines {
+                Color
+                Lines
+            }
+            PipeId
+            PipeName
+            Size
+            TypeAlarmChannel
+        }
+    }
+}

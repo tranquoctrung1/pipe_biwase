@@ -1,0 +1,39 @@
+.leaflet-container {
+    height: 90vh;
+}
+
+@media (max-width: 500px) {
+    .leaflet-container {
+        height: 75vh;
+    }
+}
+
+.commomtooltip {
+    background-color: transparent !important;
+    border: none !important;
+}
+
+.commomtooltipctt {
+    border: yellow 2px solid !important;
+    background-color: transparent !important;
+}
+
+.commomtooltipnmxl {
+    border: red 2px solid !important;
+    background-color: transparent !important;
+}
+
+.commomtooltiptbta {
+    border: aqua 2px solid !important;
+    background-color: transparent !important;
+}
+
+.regionnoimportant {
+    stroke: transparent !important;
+}
+
+.tableCurrent th,
+.tableCurrent td {
+    padding: 2px !important;
+    margin: 2px !important;
+}

@@ -1,0 +1,9 @@
+query GetDataQuantityAndIndexManual($time: String) {
+    GetDataQuantityAndIndexManual(time: $time) {
+        IdManualIndex
+        IndexManual
+        Location
+        Quantity
+        SiteId
+    }
+}

@@ -1,0 +1,59 @@
+query GetChannels {
+    GetChannels {
+        BaseLine
+        ChannelId
+        BaseMax
+        BaseMin
+        ChannelName
+        ForwardFlow
+        IndexTimeStamp
+        LastIndex
+        LastValue
+        LoggerId
+        OtherChannel
+        Pressure1
+        Pressure2
+        ReverseFlow
+        TimeStamp
+        Unit
+        _id
+    }
+}
+
+mutation InsertChannel($channel: ChannelInsertInput) {
+    InsertChannel(channel: $channel)
+}
+
+mutation UpdateChannel($channel: ChannelUpdateInput) {
+    UpdateChannel(channel: $channel)
+}
+
+mutation UpdateValueChannel($channel: ChannelValueUpdateInput) {
+    UpdateValueChannel(channel: $channel)
+}
+
+mutation DeleteChannel($channel: ChannelUpdateInput) {
+    DeleteChannel(channel: $channel)
+}
+
+query GetChannelByLoggerId($loggerid: String) {
+    GetChannelByLoggerId(loggerid: $loggerid) {
+        BaseLine
+        BaseMax
+        BaseMin
+        ChannelId
+        ChannelName
+        ForwardFlow
+        IndexTimeStamp
+        LastIndex
+        LastValue
+        LoggerId
+        OtherChannel
+        Pressure1
+        ReverseFlow
+        TimeStamp
+        Unit
+        _id
+        Pressure2
+    }
+}

@@ -1,0 +1,12 @@
+query GetListPointPipeByPipeId($pipeid: String) {
+    GetListPointPipeByPipeId(pipeid: $pipeid) {
+        PipeId
+        PointId
+        STT
+        _id
+    }
+}
+
+mutation UpdateListPointPipe($list: ListPointPipeUpdateInput) {
+    UpdateListPointPipe(list: $list)
+}

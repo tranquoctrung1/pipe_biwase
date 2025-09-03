@@ -1,0 +1,53 @@
+query GetUsers {
+    GetUsers {
+        Active
+        ConsumerId
+        Ip
+        Email
+        Language
+        LoginTime
+        Password
+        Role
+        Salt
+        StaffId
+        TimeStamp
+        Username
+        _id
+        pfm
+    }
+}
+
+query GetUserByUsername($username: String) {
+    GetUserByUsername(Username: $username) {
+        Active
+        ConsumerId
+        Email
+        Ip
+        Language
+        LoginTime
+        Password
+        Role
+        Salt
+        StaffId
+        TimeStamp
+        Username
+        _id
+        pfm
+    }
+}
+
+query VerifyPassword($username: String, $password: String) {
+    VerifyPassword(Username: $username, Password: $password)
+}
+
+mutation InsertUser($user: UserInsertInput) {
+    InsertUser(user: $user)
+}
+
+mutation UpdateUser($user: UserUpdateInput) {
+    UpdateUser(user: $user)
+}
+
+mutation DeleteUser($user: UserUpdateInput) {
+    DeleteUser(user: $user)
+}

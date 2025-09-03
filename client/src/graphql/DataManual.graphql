@@ -1,0 +1,29 @@
+query GetDataManuals {
+    GetDataManuals {
+        SiteId
+        TimeStamp
+        Value
+        _id
+    }
+}
+
+query GetDataManualBySiteId($siteid: String) {
+    GetDataManualBySiteId(siteid: $siteid) {
+        SiteId
+        TimeStamp
+        Value
+        _id
+    }
+}
+
+mutation InsertDataManual($data: DataManualInsertInput) {
+    InsertDataManual(data: $data)
+}
+
+mutation UpdateDataManual($data: DataManualUpdateInput) {
+    UpdateDataManual(data: $data)
+}
+
+mutation DeleteDataManual($data: DataManualUpdateInput) {
+    DeleteDataManual(data: $data)
+}

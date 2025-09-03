@@ -1,0 +1,23 @@
+query GetGroupPipes {
+    GetGroupPipes {
+        Description
+        GroupPipeId
+        Name
+        Color
+        _id
+        SiteIdStart
+        SiteIdEnd
+    }
+}
+
+mutation InsertGroupPipe($groupPipe: GroupPipeInsertInput) {
+    InsertGroupPipe(groupPipe: $groupPipe)
+}
+
+mutation UpdateGroupPipe($groupPipe: GroupPipeUpdateInput) {
+    UpdateGroupPipe(groupPipe: $groupPipe)
+}
+
+mutation DeleteGroupPipe($groupPipe: GroupPipeUpdateInput) {
+    DeleteGroupPipe(groupPipe: $groupPipe)
+}

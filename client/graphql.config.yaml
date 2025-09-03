@@ -1,0 +1,14 @@
+schema:
+    #- http://14.224.146.235:3003
+    - http://localhost:3003
+
+documents:
+    - 'src/**/*.graphql'
+generates:
+    src/__generated__/graphql.ts:
+        plugins:
+            - 'typescript'
+            - 'typescript-operations'
+            - 'typescript-react-apollo'
+        config:
+            withRefetchFn: true

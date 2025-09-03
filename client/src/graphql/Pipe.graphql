@@ -1,0 +1,29 @@
+query GetPipes {
+    GetPipes {
+        BaseMax
+        BaseMin
+        ColorBaseMax
+        ColorBaseMin
+        Description
+        GroupPipeId
+        Length
+        Name
+        PipeId
+        Size
+        TypeChannelAlarm
+        _id
+        SetPrioritize
+    }
+}
+
+mutation InsertPipe($pipe: PipeInsertInput) {
+    InsertPipe(pipe: $pipe)
+}
+
+mutation UpdatePipe($pipe: PipeUpdateInput) {
+    UpdatePipe(pipe: $pipe)
+}
+
+mutation DeletePipe($pipe: PipeUpdateInput) {
+    DeletePipe(pipe: $pipe)
+}

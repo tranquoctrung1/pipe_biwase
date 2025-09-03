@@ -1,0 +1,43 @@
+query GetSiteAndChannel {
+    GetSiteAndChannel {
+        Available
+        Channels {
+            BaseMin
+            BaseLine
+            BaseMax
+            ChannelId
+            ChannelName
+            ForwardFlow
+            IndexTimeStamp
+            LastIndex
+            LastValue
+            LoggerId
+            OtherChannel
+            Pressure1
+            Pressure2
+            ReverseFlow
+            TimeStamp
+            Unit
+            _id
+        }
+        DisplayGroup
+        Latitude
+        Location
+        LoggerId
+        Longitude
+        Note
+        Prioritize
+        SiteId
+        Status
+        StatusError
+        Type
+        _id
+        IsScadaMeter
+        IsManualMeter
+        IsShowLabel
+        LengthPipe
+        PipeName
+        PipeId
+        SizePipe
+    }
+}

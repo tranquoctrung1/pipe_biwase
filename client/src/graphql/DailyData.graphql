@@ -1,0 +1,58 @@
+query GetDailyDatas {
+    GetDailyDatas {
+        ForwardFlow
+        LoggerId
+        Pressure1
+        Pressure2
+        ReverseFlow
+        SiteId
+        TimeStamp
+        _id
+    }
+}
+
+query GetDailyDataByChannelTimeStamp(
+    $channelid: String
+    $start: String
+    $end: String
+) {
+    GetDailyDataByChannelTimeStamp(
+        channelid: $channelid
+        start: $start
+        end: $end
+    ) {
+        BaseMax
+        BaseMin
+        ChannelId
+        ChannelName
+        ListDataLogger {
+            TimeStamp
+            Value
+            _id
+        }
+        Unit
+    }
+}
+
+query GetDailyDataBySiteIdTimeStamp(
+    $loggerid: String
+    $start: String
+    $end: String
+) {
+    GetDailyDataBySiteIdTimeStamp(
+        loggerid: $loggerid
+        start: $start
+        end: $end
+    ) {
+        BaseMax
+        BaseMin
+        ChannelId
+        ChannelName
+        ListDataLogger {
+            TimeStamp
+            Value
+            _id
+        }
+        Unit
+    }
+}

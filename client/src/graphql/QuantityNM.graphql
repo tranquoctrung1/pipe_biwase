@@ -1,0 +1,67 @@
+query GetQuantityDailyNM($year: Int, $month: Int) {
+    GetQuantityDailyNM(year: $year, month: $month) {
+        GD1
+        GD2
+        GD3
+        TimeStamp
+        Total
+    }
+}
+
+query GetQuantityMonthlyNM($start: String, $end: String) {
+    GetQuantityMonthlyNM(start: $start, end: $end) {
+        AvgValue
+        CountDay
+        EndDate
+        IsEnoughData
+        StartDate
+        TimeStamp
+        Value
+    }
+}
+
+query GetQuantityYearlyNM($start: String, $end: String) {
+    GetQuantityYearlyNM(start: $start, end: $end) {
+        AvgValue
+        CountDay
+        EndDate
+        IsEnoughData
+        StartDate
+        TimeStamp
+        Value
+    }
+}
+
+query GetManualIndexDailyNM($year: Int, $month: Int) {
+    GetManualIndexDailyNM(year: $year, month: $month) {
+        GD1
+        GD2
+        GD3
+        TimeStamp
+        Total
+    }
+}
+
+query GetManualIndexMonthlyNM($start: String, $end: String) {
+    GetManualIndexMonthlyNM(start: $start, end: $end) {
+        AvgValue
+        CountDay
+        EndDate
+        IsEnoughData
+        StartDate
+        TimeStamp
+        Value
+    }
+}
+
+query GetManualIndexYearlyNM($start: String, $end: String) {
+    GetManualIndexYearlyNM(start: $start, end: $end) {
+        AvgValue
+        CountDay
+        EndDate
+        IsEnoughData
+        StartDate
+        TimeStamp
+        Value
+    }
+}

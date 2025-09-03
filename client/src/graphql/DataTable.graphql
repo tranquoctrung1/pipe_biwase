@@ -1,0 +1,14 @@
+query GetDataTableCurrent {
+    GetDataTableCurrent {
+        ForwardFlow
+        IndexForwardFlow
+        Location
+        IndexReverseFlow
+        Pressure
+        ReverseFlow
+        STT
+        SiteId
+        TimeStamp
+        Type
+    }
+}

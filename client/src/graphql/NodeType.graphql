@@ -1,0 +1,7 @@
+query GetNodeTypes {
+    GetNodeTypes {
+        Name
+        Type
+        _id
+    }
+}

@@ -1,0 +1,7 @@
+query GetRoles {
+    GetRoles {
+        Description
+        Role
+        _id
+    }
+}

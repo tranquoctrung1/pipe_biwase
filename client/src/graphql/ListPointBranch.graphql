@@ -1,0 +1,12 @@
+query GetListPointBranchByBranchId($branchid: String) {
+    GetListPointBranchByBranchId(branchid: $branchid) {
+        BranchId
+        Level
+        PointId
+        _id
+    }
+}
+
+mutation UpdateListPointBranch($list: ListPointBranchUpdateInput) {
+    UpdateListPointBranch(list: $list)
+}

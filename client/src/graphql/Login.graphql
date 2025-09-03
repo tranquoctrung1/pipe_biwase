@@ -1,0 +1,11 @@
+query LoginAction($username: String, $password: String) {
+    LoginAction(username: $username, password: $password) {
+        Role
+        Username
+        token
+    }
+}
+
+query VerifyToken($token: String) {
+    VerifyToken(token: $token)
+}

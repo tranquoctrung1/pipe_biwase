@@ -1,0 +1,63 @@
+query GetTotalQuantityByTimeStamp(
+    $siteid: String
+    $start: String
+    $end: String
+) {
+    GetTotalQuantityByTimeStamp(siteid: $siteid, start: $start, end: $end)
+}
+
+query GetQuantityHourly($siteid: String, $start: String, $end: String) {
+    GetQuantityHourly(siteid: $siteid, start: $start, end: $end) {
+        AvgFlow
+        Index
+        MaxFlow
+        MinFlow
+        Quantity
+        TimeStamp
+        AvgPressure
+        MaxPressure
+        MinPressure
+    }
+}
+
+query GetQuantityDaily($siteid: String, $start: String, $end: String) {
+    GetQuantityDaily(siteid: $siteid, start: $start, end: $end) {
+        AvgFlow
+        Index
+        MaxFlow
+        MinFlow
+        Quantity
+        TimeStamp
+        AvgPressure
+        MaxPressure
+        MinPressure
+    }
+}
+
+query GetQuantityMonthly($siteid: String, $start: String, $end: String) {
+    GetQuantityMonthly(siteid: $siteid, start: $start, end: $end) {
+        AvgFlow
+        Index
+        MaxFlow
+        MinFlow
+        Quantity
+        TimeStamp
+        AvgPressure
+        MaxPressure
+        MinPressure
+    }
+}
+
+query GetQuantityYearly($siteid: String, $start: String, $end: String) {
+    GetQuantityYearly(siteid: $siteid, start: $start, end: $end) {
+        AvgFlow
+        Index
+        MaxFlow
+        MinFlow
+        Quantity
+        TimeStamp
+        AvgPressure
+        MaxPressure
+        MinPressure
+    }
+}

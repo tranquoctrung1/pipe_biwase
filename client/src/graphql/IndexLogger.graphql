@@ -1,0 +1,19 @@
+query GetIndexLoggerExactTime($time: String, $channelid: String) {
+    GetIndexLoggerExactTime(time: $time, channelid: $channelid) {
+        TimeStamp
+        Value
+        _id
+    }
+}
+
+query GetIndexLoggerFilterTime(
+    $start: String
+    $channelid: String
+    $end: String
+) {
+    GetIndexLoggerFilterTime(start: $start, channelid: $channelid, end: $end) {
+        TimeStamp
+        Value
+        _id
+    }
+}

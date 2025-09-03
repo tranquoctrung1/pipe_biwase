@@ -1,0 +1,19 @@
+query GetBranchs {
+    GetBranchs {
+        BranchId
+        BranchName
+        _id
+    }
+}
+
+mutation DeleteBranch($branch: BranchUpdateInput) {
+    DeleteBranch(branch: $branch)
+}
+
+mutation InsertBranch($branch: BranchInsertInput) {
+    InsertBranch(branch: $branch)
+}
+
+mutation UpdateBranch($branch: BranchUpdateInput) {
+    UpdateBranch(branch: $branch)
+}

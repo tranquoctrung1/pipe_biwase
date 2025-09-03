@@ -1,0 +1,7 @@
+query GetLostWaterBranch($branchid: String, $start: String, $end: String) {
+    GetLostWaterBranch(branchid: $branchid, start: $start, end: $end) {
+        Quantitylevel1
+        Quantitylevel2
+        TimeStamp
+    }
+}

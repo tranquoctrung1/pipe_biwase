@@ -1,0 +1,130 @@
+query GetSites {
+    GetSites {
+        Available
+        DisplayGroup
+        Latitude
+        Location
+        LoggerId
+        Longitude
+        Note
+        SiteId
+        Status
+        Type
+        _id
+        Prioritize
+        IsScadaMeter
+        IsManualMeter
+        IsShowLabel
+        TimeDelay
+        IsDNP
+        IsHWM
+        StartHour
+    }
+}
+
+query GetSiteIsMeter {
+    GetSiteIsMeter {
+        Available
+        DisplayGroup
+        Latitude
+        Location
+        LoggerId
+        Longitude
+        Note
+        Prioritize
+        SiteId
+        Status
+        Type
+        _id
+        IsScadaMeter
+        IsManualMeter
+        IsShowLabel
+        TimeDelay
+        IsDNP
+        IsHWM
+        StartHour
+    }
+}
+
+query GetSiteIsMeterTotal {
+    GetSiteIsMeterTotal {
+        Available
+        DisplayGroup
+        Latitude
+        Location
+        LoggerId
+        Longitude
+        Note
+        Prioritize
+        SiteId
+        Status
+        Type
+        _id
+        IsScadaMeter
+        IsManualMeter
+        IsShowLabel
+        TimeDelay
+        IsDNP
+        IsHWM
+        StartHour
+    }
+}
+
+query GetSiteIsMeterTotalBranch {
+    GetSiteIsMeterTotalBranch {
+        Available
+        DisplayGroup
+        Latitude
+        Location
+        Longitude
+        LoggerId
+        Prioritize
+        Note
+        SiteId
+        Status
+        Type
+        _id
+        IsScadaMeter
+        IsManualMeter
+        IsShowLabel
+        TimeDelay
+        IsDNP
+        IsHWM
+        StartHour
+    }
+}
+query GetSiteIsManualMeter {
+    GetSiteIsManualMeter {
+        Available
+        DisplayGroup
+        IsManualMeter
+        IsScadaMeter
+        Latitude
+        Location
+        LoggerId
+        Longitude
+        Note
+        Prioritize
+        SiteId
+        Status
+        _id
+        Type
+        IsShowLabel
+        TimeDelay
+        IsDNP
+        IsHWM
+        StartHour
+    }
+}
+
+mutation InsertSite($site: SiteInsertInput) {
+    InsertSite(site: $site)
+}
+
+mutation UpdateSite($site: SiteUpdateInput) {
+    UpdateSite(site: $site)
+}
+
+mutation DeleteSite($site: SiteUpdateInput) {
+    DeleteSite(site: $site)
+}

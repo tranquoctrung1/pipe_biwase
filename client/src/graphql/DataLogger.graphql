@@ -1,0 +1,121 @@
+query GetDataLoggerByTimeStamp(
+    $channelid: String
+    $start: String
+    $end: String
+) {
+    GetDataLoggerByTimeStamp(channelid: $channelid, start: $start, end: $end) {
+        BaseMax
+        BaseMin
+        ChannelId
+        ChannelName
+        ListDataLogger {
+            TimeStamp
+            Value
+        }
+        Unit
+    }
+}
+
+query GetDataLoggerByCurrentTime($channelid: String) {
+    GetDataLoggerByCurrentTime(channelid: $channelid) {
+        BaseMax
+        BaseMin
+        ChannelId
+        ChannelName
+        ListDataLogger {
+            TimeStamp
+            Value
+        }
+        Unit
+    }
+}
+
+query GetDataLoggerByCurrentTimeForManualData($channelid: String) {
+    GetDataLoggerByCurrentTimeForManualData(channelid: $channelid) {
+        TimeStamp
+        Value
+        _id
+    }
+}
+
+query GetDataLoggerByTimeStampForManualData(
+    $channelid: String
+    $start: String
+    $end: String
+) {
+    GetDataLoggerByTimeStampForManualData(
+        channelid: $channelid
+        start: $start
+        end: $end
+    ) {
+        TimeStamp
+        _id
+        Value
+    }
+}
+
+query GetDataLoggerOfSiteCurrentTime($loggerid: String) {
+    GetDataLoggerOfSiteCurrentTime(loggerid: $loggerid) {
+        BaseMax
+        BaseMin
+        ChannelId
+        ChannelName
+        ListDataLogger {
+            TimeStamp
+            Value
+            _id
+        }
+        Unit
+    }
+}
+
+query GetDataLoggerOfSiteByTimeStamp(
+    $loggerid: String
+    $start: String
+    $end: String
+) {
+    GetDataLoggerOfSiteByTimeStamp(
+        loggerid: $loggerid
+        start: $start
+        end: $end
+    ) {
+        BaseMax
+        BaseMin
+        ChannelId
+        ChannelName
+        ListDataLogger {
+            TimeStamp
+            Value
+            _id
+        }
+        Unit
+    }
+}
+
+query GetDataLoggerPressureByLoggerId(
+    $loggerid: String
+    $start: String
+    $end: String
+) {
+    GetDataLoggerPressureByLoggerId(
+        loggerid: $loggerid
+        start: $start
+        end: $end
+    ) {
+        TimeStamp
+        Value
+        _id
+    }
+}
+
+mutation InsertDataLogger($data: DataLoggerInsertInput) {
+    InsertDataLogger(data: $data)
+}
+
+mutation UpdateDataLogger($data: DataLoggerUpdateInput) {
+    UpdateDataLogger(data: $data)
+}
+
+mutation DeleteDataLogger($data: DataLoggerUpdateInput) {
+    DeleteDataLogger(data: $data)
+}
