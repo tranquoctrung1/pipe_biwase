@@ -1,23 +1,22 @@
+import React, { useState, useLayoutEffect, useCallback, useMemo } from 'react';
 import { Grid, Button, Flex, Text } from '@mantine/core';
-
-import { useState, useLayoutEffect } from 'react';
-
 import {
     useGetDataLoggerOfSiteCurrentTimeQuery,
     useGetDataLoggerOfSiteByTimeStampQuery,
-    //useGetDailyDataBySiteIdTimeStampQuery,
 } from '../__generated__/graphql';
-
 import * as am5 from '@amcharts/amcharts5';
 import * as am5xy from '@amcharts/amcharts5/xy';
 import am5themes_Animated from '@amcharts/amcharts5/themes/Animated';
 import * as am5plugins_exporting from '@amcharts/amcharts5/plugins/exporting';
-
 import Swal from 'sweetalert2';
-
 import { convertDateToSetValueDateTimeLocalInput } from '../utils/utils';
 
-interface ChartSiteModalInterface {
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface ChartSiteModalProps {
+    siteid: string;
     loggerid: string;
     location: string;
     pipeid: string;
@@ -26,6 +25,239 @@ interface ChartSiteModalInterface {
     lengthpipe: number;
 }
 
+interface DataLoggerItem {
+    TimeStamp: string;
+    Value: number;
+}
+
+interface ChannelData {
+    ChannelName: string;
+    Unit: string;
+    ListDataLogger: DataLoggerItem[];
+}
+
+// ---------------------------------------------------------------------------
+// Constants — same TIME_RANGES pattern established in ChartModal
+// ---------------------------------------------------------------------------
+
+const CHART_DOM_ID = 'chart-site-modal';
+
+interface TimeRange {
+    label: string;
+    subtract: (d: Date) => void;
+    grouped?: boolean;
+}
+
+const TIME_RANGES: TimeRange[] = [
+    { label: 'Xem 12 giờ', subtract: (d) => d.setHours(d.getHours() - 12) },
+    { label: 'Xem 1 ngày', subtract: (d) => d.setDate(d.getDate() - 1) },
+    { label: 'Xem 3 ngày', subtract: (d) => d.setDate(d.getDate() - 3) },
+    { label: 'Xem 1 tuần', subtract: (d) => d.setDate(d.getDate() - 7) },
+    { label: 'Xem 1 tháng', subtract: (d) => d.setMonth(d.getMonth() - 1) },
+    {
+        label: 'Xem 1 năm',
+        subtract: (d) => d.setFullYear(d.getFullYear() - 1),
+        grouped: true,
+    },
+];
+
+// ---------------------------------------------------------------------------
+// Pure helpers — outside the component, never recreated
+// ---------------------------------------------------------------------------
+
+function createFreshRoot(): am5.Root {
+    am5.array.each(am5.registry.rootElements, (root) => {
+        if (root.dom.id === CHART_DOM_ID) root.dispose();
+    });
+    return am5.Root.new(CHART_DOM_ID);
+}
+
+function buildTheme(root: am5.Root): am5.Theme {
+    const theme = am5.Theme.new(root);
+    theme.rule('AxisLabel', ['minor']).setAll({ dy: 1 });
+    theme.rule('Grid', ['minor']).setAll({ strokeOpacity: 0.08 });
+    return theme;
+}
+
+/**
+ * Render a multi-series site chart.
+ * `grouped` drives groupData on the x-axis (used for 1-year range).
+ */
+function renderChart(
+    channels: ChannelData[],
+    location: string,
+    grouped = false,
+): void {
+    const root = createFreshRoot();
+    root.setThemes([am5themes_Animated.new(root), buildTheme(root)]);
+
+    const chart = root.container.children.push(
+        am5xy.XYChart.new(root, {
+            panX: false,
+            panY: false,
+            wheelX: 'panX',
+            wheelY: 'zoomX',
+            paddingLeft: 0,
+        }),
+    );
+
+    const cursor = chart.set(
+        'cursor',
+        am5xy.XYCursor.new(root, { behavior: 'zoomX' }),
+    );
+    cursor.lineY.set('visible', false);
+
+    const xAxis = chart.xAxes.push(
+        am5xy.DateAxis.new(root, {
+            groupData: grouped,
+            maxDeviation: 0,
+            baseInterval: { timeUnit: 'minute', count: 15 },
+            renderer: am5xy.AxisRendererX.new(root, {
+                minorGridEnabled: true,
+                minGridDistance: 200,
+                minorLabelsEnabled: true,
+            }),
+            tooltip: am5.Tooltip.new(root, {}),
+        }),
+    );
+    xAxis.set('minorDateFormats', { day: 'dd', month: 'MM' });
+
+    // Each channel gets its own y-axis (alternating sides)
+    channels.forEach((ch, idx) => {
+        const seriesColor = ch.Unit === 'm' ? '#e74c3c' : '#3498db';
+        const color = am5.color(seriesColor);
+
+        const yRenderer = am5xy.AxisRendererY.new(root, {
+            opposite: idx > 0,
+            stroke: color,
+            fill: color,
+            strokeWidth: 2,
+            strokeOpacity: 1,
+        });
+
+        const yAxis = chart.yAxes.push(
+            am5xy.ValueAxis.new(root, { maxDeviation: 1, renderer: yRenderer }),
+        );
+
+        if (chart.yAxes.indexOf(yAxis) > 0) {
+            yAxis.set(
+                'syncWithAxis',
+                chart.yAxes.getIndex(0) as am5xy.ValueAxis<am5xy.AxisRenderer>,
+            );
+        }
+
+        const series = chart.series.push(
+            am5xy.LineSeries.new(root, {
+                name: ch.ChannelName,
+                xAxis,
+                yAxis,
+                valueYField: 'Value',
+                valueXField: 'TimeStamp',
+                tooltip: am5.Tooltip.new(root, {
+                    labelText: `{valueX.formatDate("dd/MM/YYYY HH:mm")}: [bold]{valueY} ${ch.Unit}`,
+                }),
+                fill: color,
+                stroke: color,
+            }),
+        );
+
+        yRenderer.labels.template.set('fill', series.get('fill'));
+
+        series.bullets.push(() =>
+            am5.Bullet.new(root, {
+                sprite: am5.Circle.new(root, {
+                    radius: 1.5,
+                    fill: series.get('fill'),
+                }),
+            }),
+        );
+
+        const chartData = ch.ListDataLogger.map((item) => ({
+            TimeStamp: new Date(item.TimeStamp).getTime(),
+            Value: item.Value,
+        })).sort((a, b) => a.TimeStamp - b.TimeStamp);
+
+        series.data.setAll(chartData);
+        series.appear(1000);
+    });
+
+    chart.set(
+        'scrollbarX',
+        am5.Scrollbar.new(root, { orientation: 'horizontal' }),
+    );
+
+    // Legend
+    const legend = chart.bottomAxesContainer.children.push(
+        am5.Legend.new(root, {
+            width: 300,
+            height: 50,
+            x: am5.percent(50),
+            centerX: am5.percent(50),
+            layout: root.horizontalLayout,
+        }),
+    );
+
+    legend.itemContainers.template.events.on('pointerover', (e) => {
+        const hovered = e.target.dataItem?.dataContext as am5xy.LineSeries;
+        chart.series.each((s) => {
+            const strokes = (s as am5xy.LineSeries).strokes.template;
+            if (s !== hovered) {
+                strokes.setAll({
+                    strokeOpacity: 0.15,
+                    stroke: am5.color(0x000000),
+                });
+            } else {
+                strokes.setAll({ strokeWidth: 2 });
+            }
+        });
+    });
+
+    legend.itemContainers.template.events.on('pointerout', () => {
+        chart.series.each((s) => {
+            (s as am5xy.LineSeries).strokes.template.setAll({
+                strokeOpacity: 1,
+                strokeWidth: 1,
+                stroke: s.get('fill'),
+            });
+        });
+    });
+
+    legend.itemContainers.template.set('width', am5.p100);
+    legend.valueLabels.template.setAll({ width: am5.p100, textAlign: 'right' });
+    legend.data.setAll(chart.series.values);
+
+    am5plugins_exporting.Exporting.new(root, {
+        menu: am5plugins_exporting.ExportingMenu.new(root, {}),
+        filePrefix: location,
+    });
+
+    chart.appear(1000, 100);
+}
+
+function validateDates(start: string, end: string): boolean {
+    if (!start) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Oops...',
+            text: 'Chưa có thời gian bắt đầu',
+        });
+        return false;
+    }
+    if (!end) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Oops...',
+            text: 'Chưa có thời gian kết thúc',
+        });
+        return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
 const ChartSiteModal = ({
     loggerid,
     location,
@@ -33,707 +265,121 @@ const ChartSiteModal = ({
     pipename,
     sizepipe,
     lengthpipe,
-}: ChartSiteModalInterface) => {
+}: ChartSiteModalProps) => {
     const [startDate, setStartDate] = useState('');
     const [endDate, setEndDate] = useState('');
 
-    const { refetch: getDataLoggerCurrentTime } =
+    const { refetch: fetchCurrentTime } =
         useGetDataLoggerOfSiteCurrentTimeQuery();
-    const { refetch: getDataLoggerByTimeStamp } =
+    const { refetch: fetchByTimestamp } =
         useGetDataLoggerOfSiteByTimeStampQuery();
-    // const { refetch: getDailyDataBySiteIdTimeStamp } =
-    //     useGetDailyDataBySiteIdTimeStampQuery();
 
-    const drawChart = (data: any) => {
-        am5.array.each(am5.registry.rootElements, function (root) {
-            if (root.dom.id == 'chart') {
-                root.dispose();
-            }
-        });
-
-        const root = am5.Root.new('chart');
-
-        const myTheme = am5.Theme.new(root);
-
-        // Move minor label a bit down
-        myTheme.rule('AxisLabel', ['minor']).setAll({
-            dy: 1,
-        });
-
-        // Tweak minor grid opacity
-        myTheme.rule('Grid', ['minor']).setAll({
-            strokeOpacity: 0.08,
-        });
-
-        // Set themes
-        // https://www.amcharts.com/docs/v5/concepts/themes/
-        root.setThemes([am5themes_Animated.new(root), myTheme]);
-
-        // Create chart
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/
-        const chart = root.container.children.push(
-            am5xy.XYChart.new(root, {
-                panX: false,
-                panY: false,
-                wheelX: 'panX',
-                wheelY: 'zoomX',
-                paddingLeft: 0,
-            }),
-        );
-
-        // Add cursor
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/cursor/
-        const cursor = chart.set(
-            'cursor',
-            am5xy.XYCursor.new(root, {
-                behavior: 'zoomX',
-            }),
-        );
-        cursor.lineY.set('visible', false);
-
-        // Create axes
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/axes/
-        const xAxis = chart.xAxes.push(
-            am5xy.DateAxis.new(root, {
-                groupData: false,
-                maxDeviation: 0,
-                baseInterval: {
-                    timeUnit: 'minute',
-                    count: 15,
-                },
-                renderer: am5xy.AxisRendererX.new(root, {
-                    minorGridEnabled: true,
-                    minGridDistance: 200,
-                    minorLabelsEnabled: true,
-                }),
-                tooltip: am5.Tooltip.new(root, {}),
-            }),
-        );
-
-        xAxis.set('minorDateFormats', {
-            day: 'dd',
-            month: 'MM',
-        });
-
-        // const yAxis = chart.yAxes.push(
-        //     am5xy.ValueAxis.new(root, {
-        //         renderer: am5xy.AxisRendererY.new(root, {}),
-        //     }),
-        // );
-
-        // Add series
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/series/
-        let check = false;
-        for (const d of data) {
-            let seriesColor = '#3498db';
-
-            if (d.Unit === 'm') {
-                seriesColor = '#e74c3c';
-            }
-
-            const yRenderer = am5xy.AxisRendererY.new(root, {
-                opposite: check,
-                stroke: am5.color(seriesColor),
-                fill: am5.color(seriesColor),
-                strokeWidth: 2,
-                strokeOpacity: 1,
-            });
-            if (check == false) {
-                check = true;
-            }
-            const yAxis = chart.yAxes.push(
-                am5xy.ValueAxis.new(root, {
-                    maxDeviation: 1,
-                    renderer: yRenderer,
-                }),
-            );
-
-            if (chart.yAxes.indexOf(yAxis) > 0) {
-                //@ts-ignore
-                yAxis.set('syncWithAxis', chart.yAxes.getIndex(0));
-            }
-
-            const series = chart.series.push(
-                am5xy.LineSeries.new(root, {
-                    //@ts-ignore
-                    name: d.ChannelName,
-                    xAxis: xAxis,
-                    yAxis: yAxis,
-                    valueYField: 'Value',
-                    valueXField: 'TimeStamp',
-                    tooltip: am5.Tooltip.new(root, {
-                        labelText:
-                            '{valueX.formatDate("dd/MM/YYYY HH:mm")}: [bold]{valueY} ' +
-                            d.Unit,
-                    }),
-                    fill: am5.color(seriesColor),
-                    stroke: am5.color(seriesColor),
-                }),
-            );
-
-            yRenderer.labels.template.set('fill', series.get('fill'));
-
-            // Actual bullet
-            series.bullets.push(function () {
-                const bulletCircle = am5.Circle.new(root, {
-                    radius: 1.5,
-                    fill: series.get('fill'),
-                });
-                return am5.Bullet.new(root, {
-                    sprite: bulletCircle,
-                });
-            });
-            // Set data
-            const chartData = [];
-            for (const item of d.ListDataLogger) {
-                const obj = {
-                    TimeStamp: new Date(item.TimeStamp).getTime(),
-                    Value: item.Value,
-                };
-
-                chartData.push(obj);
-            }
-
-            chartData.sort((a, b) => a.TimeStamp - b.TimeStamp);
-
-            series.data.setAll(chartData);
-
-            series.appear(1000);
-        }
-
-        // Add scrollbar
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/scrollbars/
-        chart.set(
-            'scrollbarX',
-            am5.Scrollbar.new(root, {
-                orientation: 'horizontal',
-            }),
-        );
-
-        // Add legend
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/legend-xy-series/
-        const legend = chart.bottomAxesContainer.children.push(
-            am5.Legend.new(root, {
-                width: 300,
-                height: 50,
-                x: am5.percent(50),
-                centerX: am5.percent(50),
-                layout: root.horizontalLayout,
-            }),
-        );
-        // When legend item container is hovered, dim all the series except the hovered one
-        legend.itemContainers.template.events.on('pointerover', function (e) {
-            const itemContainer = e.target;
-
-            // As series list is data of a legend, dataContext is series
-            //@ts-ignore
-            const series = itemContainer.dataItem.dataContext;
-
-            chart.series.each(function (chartSeries) {
-                if (chartSeries != series) {
-                    //@ts-ignore
-                    chartSeries.strokes.template.setAll({
-                        strokeOpacity: 0.15,
-                        stroke: am5.color(0x000000),
-                    });
-                } else {
-                    //@ts-ignore
-                    chartSeries.strokes.template.setAll({
-                        strokeWidth: 2,
-                    });
-                }
-            });
-        });
-
-        // When legend item container is unhovered, make all series as they are
-        legend.itemContainers.template.events.on('pointerout', function (e) {
-            const itemContainer = e.target;
-            //@ts-ignore
-            const series = itemContainer.dataItem.dataContext;
-
-            chart.series.each(function (chartSeries) {
-                //@ts-ignore
-                chartSeries.strokes.template.setAll({
-                    strokeOpacity: 1,
-                    strokeWidth: 1,
-                    stroke: chartSeries.get('fill'),
-                });
-            });
-        });
-
-        legend.itemContainers.template.set('width', am5.p100);
-        legend.valueLabels.template.setAll({
-            width: am5.p100,
-            textAlign: 'right',
-        });
-
-        // It's is important to set legend data after all the events are set on template, otherwise events won't be copied
-        legend.data.setAll(chart.series.values);
-
-        am5plugins_exporting.Exporting.new(root, {
-            menu: am5plugins_exporting.ExportingMenu.new(root, {}),
-            filePrefix: location,
-        });
-
-        chart.appear(1000, 100);
-    };
-
-    const drawChartYear = (data: any) => {
-        am5.array.each(am5.registry.rootElements, function (root) {
-            if (root.dom.id == 'chart') {
-                root.dispose();
-            }
-        });
-
-        const root = am5.Root.new('chart');
-
-        const myTheme = am5.Theme.new(root);
-
-        // Move minor label a bit down
-        myTheme.rule('AxisLabel', ['minor']).setAll({
-            dy: 1,
-        });
-
-        // Tweak minor grid opacity
-        myTheme.rule('Grid', ['minor']).setAll({
-            strokeOpacity: 0.08,
-        });
-
-        // Set themes
-        // https://www.amcharts.com/docs/v5/concepts/themes/
-        root.setThemes([am5themes_Animated.new(root), myTheme]);
-
-        // Create chart
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/
-        const chart = root.container.children.push(
-            am5xy.XYChart.new(root, {
-                panX: false,
-                panY: false,
-                wheelX: 'panX',
-                wheelY: 'zoomX',
-                paddingLeft: 0,
-            }),
-        );
-
-        // Add cursor
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/cursor/
-        const cursor = chart.set(
-            'cursor',
-            am5xy.XYCursor.new(root, {
-                behavior: 'zoomX',
-            }),
-        );
-        cursor.lineY.set('visible', false);
-
-        // Create axes
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/axes/
-        const xAxis = chart.xAxes.push(
-            am5xy.DateAxis.new(root, {
-                groupData: true,
-                maxDeviation: 0,
-                baseInterval: {
-                    timeUnit: 'minute',
-                    count: 15,
-                },
-                renderer: am5xy.AxisRendererX.new(root, {
-                    minorGridEnabled: true,
-                    minGridDistance: 200,
-                    minorLabelsEnabled: true,
-                }),
-                tooltip: am5.Tooltip.new(root, {}),
-            }),
-        );
-
-        xAxis.set('minorDateFormats', {
-            day: 'dd',
-            month: 'MM',
-        });
-
-        // const yAxis = chart.yAxes.push(
-        //     am5xy.ValueAxis.new(root, {
-        //         renderer: am5xy.AxisRendererY.new(root, {}),
-        //     }),
-        // );
-
-        // Add series
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/series/
-        let check = false;
-        for (const d of data) {
-            let seriesColor = '#3498db';
-
-            if (d.Unit === 'm') {
-                seriesColor = '#e74c3c';
-            }
-
-            const yRenderer = am5xy.AxisRendererY.new(root, {
-                opposite: check,
-                stroke: am5.color(seriesColor),
-                fill: am5.color(seriesColor),
-                strokeWidth: 2,
-                strokeOpacity: 1,
-            });
-            if (check == false) {
-                check = true;
-            }
-            const yAxis = chart.yAxes.push(
-                am5xy.ValueAxis.new(root, {
-                    maxDeviation: 1,
-                    renderer: yRenderer,
-                }),
-            );
-
-            if (chart.yAxes.indexOf(yAxis) > 0) {
-                //@ts-ignore
-                yAxis.set('syncWithAxis', chart.yAxes.getIndex(0));
-            }
-
-            const series = chart.series.push(
-                am5xy.LineSeries.new(root, {
-                    //@ts-ignore
-                    name: d.ChannelName,
-                    xAxis: xAxis,
-                    yAxis: yAxis,
-                    valueYField: 'Value',
-                    valueXField: 'TimeStamp',
-                    tooltip: am5.Tooltip.new(root, {
-                        labelText:
-                            '{valueX.formatDate("dd/MM/YYYY HH:mm")}: [bold]{valueY} ' +
-                            d.Unit,
-                    }),
-                    fill: am5.color(seriesColor),
-                    stroke: am5.color(seriesColor),
-                }),
-            );
-
-            yRenderer.labels.template.set('fill', series.get('fill'));
-
-            // Actual bullet
-            series.bullets.push(function () {
-                const bulletCircle = am5.Circle.new(root, {
-                    radius: 1.5,
-                    fill: series.get('fill'),
-                });
-                return am5.Bullet.new(root, {
-                    sprite: bulletCircle,
-                });
-            });
-            // Set data
-            const chartData = [];
-            for (const item of d.ListDataLogger) {
-                const obj = {
-                    TimeStamp: new Date(item.TimeStamp).getTime(),
-                    Value: item.Value,
-                };
-
-                chartData.push(obj);
-            }
-
-            chartData.sort((a, b) => a.TimeStamp - b.TimeStamp);
-
-            series.data.setAll(chartData);
-
-            series.appear(1000);
-        }
-
-        // Add scrollbar
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/scrollbars/
-        chart.set(
-            'scrollbarX',
-            am5.Scrollbar.new(root, {
-                orientation: 'horizontal',
-            }),
-        );
-
-        // Add legend
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/legend-xy-series/
-        const legend = chart.bottomAxesContainer.children.push(
-            am5.Legend.new(root, {
-                width: 300,
-                height: 50,
-                x: am5.percent(50),
-                centerX: am5.percent(50),
-                layout: root.horizontalLayout,
-            }),
-        );
-        // When legend item container is hovered, dim all the series except the hovered one
-        legend.itemContainers.template.events.on('pointerover', function (e) {
-            const itemContainer = e.target;
-
-            // As series list is data of a legend, dataContext is series
-            //@ts-ignore
-            const series = itemContainer.dataItem.dataContext;
-
-            chart.series.each(function (chartSeries) {
-                if (chartSeries != series) {
-                    //@ts-ignore
-                    chartSeries.strokes.template.setAll({
-                        strokeOpacity: 0.15,
-                        stroke: am5.color(0x000000),
-                    });
-                } else {
-                    //@ts-ignore
-                    chartSeries.strokes.template.setAll({
-                        strokeWidth: 2,
-                    });
-                }
-            });
-        });
-
-        // When legend item container is unhovered, make all series as they are
-        legend.itemContainers.template.events.on('pointerout', function (e) {
-            const itemContainer = e.target;
-            //@ts-ignore
-            const series = itemContainer.dataItem.dataContext;
-
-            chart.series.each(function (chartSeries) {
-                //@ts-ignore
-                chartSeries.strokes.template.setAll({
-                    strokeOpacity: 1,
-                    strokeWidth: 1,
-                    stroke: chartSeries.get('fill'),
-                });
-            });
-        });
-
-        legend.itemContainers.template.set('width', am5.p100);
-        legend.valueLabels.template.setAll({
-            width: am5.p100,
-            textAlign: 'right',
-        });
-
-        // It's is important to set legend data after all the events are set on template, otherwise events won't be copied
-        legend.data.setAll(chart.series.values);
-
-        am5plugins_exporting.Exporting.new(root, {
-            menu: am5plugins_exporting.ExportingMenu.new(root, {}),
-            filePrefix: location,
-        });
-
-        chart.appear(1000, 100);
-    };
-
+    // Load chart with current-time data when modal opens / loggerid changes
     useLayoutEffect(() => {
-        getDataLoggerCurrentTime({ loggerid: loggerid })
-            .then((res) => {
-                if (res?.data?.GetDataLoggerOfSiteCurrentTime) {
-                    for (const data of res.data
-                        .GetDataLoggerOfSiteCurrentTime) {
-                        //@ts-ignore
-                        if (data?.ListDataLogger?.length > 0) {
-                            setStartDate(
-                                convertDateToSetValueDateTimeLocalInput(
-                                    //@ts-ignore
-                                    data.ListDataLogger[
-                                        //@ts-ignore
-                                        data.ListDataLogger.length - 1
-                                    ].TimeStamp,
-                                ),
-                            );
-                            setEndDate(
-                                convertDateToSetValueDateTimeLocalInput(
-                                    //@ts-ignore
-                                    data.ListDataLogger[0].TimeStamp,
-                                ),
-                            );
-                            break;
-                        }
-                    }
+        if (!loggerid) return;
 
-                    drawChart(res.data.GetDataLoggerOfSiteCurrentTime);
+        fetchCurrentTime({ loggerid })
+            .then(({ data }) => {
+                const channels = data?.GetDataLoggerOfSiteCurrentTime as
+                    | ChannelData[]
+                    | undefined;
+                if (!channels) return;
+
+                // Set date range from first channel that has data
+                for (const ch of channels) {
+                    if (ch.ListDataLogger.length > 0) {
+                        setStartDate(
+                            convertDateToSetValueDateTimeLocalInput(
+                                ch.ListDataLogger[ch.ListDataLogger.length - 1]
+                                    .TimeStamp,
+                            ),
+                        );
+                        setEndDate(
+                            convertDateToSetValueDateTimeLocalInput(
+                                ch.ListDataLogger[0].TimeStamp,
+                            ),
+                        );
+                        break;
+                    }
                 }
+
+                renderChart(channels, location);
             })
-            .catch((err) => console.error(err));
-    }, [loggerid]);
+            .catch(console.error);
+    }, [loggerid]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const isAllowGetData = (startDate: any, endDate: any) => {
-        let isAllow = true;
+    // ---------------------------------------------------------------------------
+    // Shared fetch-and-render
+    // ---------------------------------------------------------------------------
 
-        if (startDate === null || startDate === undefined || startDate === '') {
-            Swal.fire({
-                icon: 'error',
-                title: 'Oops...',
-                text: 'Chưa có thời gian bắt đầu',
-            });
-            isAllow = false;
-        } else if (
-            endDate === null ||
-            endDate === undefined ||
-            endDate === ''
-        ) {
-            Swal.fire({
-                icon: 'error',
-                title: 'Oops...',
-                text: 'Chưa có thời gian kết thúc',
-            });
-
-            isAllow = false;
-        }
-
-        return isAllow;
-    };
-
-    const onViewChartClicked = () => {
-        const isAllow = isAllowGetData(startDate, endDate);
-        if (isAllow) {
-            const totalMilisecondStart = new Date(startDate).getTime();
-            const totalMilisecondEnd = new Date(endDate).getTime();
-
-            getDataLoggerByTimeStamp({
-                loggerid: loggerid,
-                start: totalMilisecondStart.toString(),
-                end: totalMilisecondEnd.toString(),
+    const fetchAndRender = useCallback(
+        (startMs: number, endMs: number, grouped = false) => {
+            fetchByTimestamp({
+                loggerid,
+                start: String(startMs),
+                end: String(endMs),
             })
-                .then((res) => {
-                    if (res?.data?.GetDataLoggerOfSiteByTimeStamp) {
-                        drawChart(res.data.GetDataLoggerOfSiteByTimeStamp);
-                    }
+                .then(({ data }) => {
+                    const channels = data?.GetDataLoggerOfSiteByTimeStamp as
+                        | ChannelData[]
+                        | undefined;
+                    if (channels) renderChart(channels, location, grouped);
                 })
-                .catch((err) => console.error(err));
-        }
-    };
+                .catch(console.error);
+        },
+        [loggerid, location, fetchByTimestamp],
+    );
 
-    const onView12hClicked = () => {
-        const isAllow = isAllowGetData(startDate, endDate);
-        if (isAllow) {
-            const totalMilisecondEnd = new Date(endDate).getTime();
-            const temp = new Date(endDate);
-            temp.setHours(temp.getHours() - 12);
-            const totalMilisecondStart = temp.getTime();
+    const resolveRange = useCallback((): {
+        startMs: number;
+        endMs: number;
+    } | null => {
+        if (!validateDates(startDate, endDate)) return null;
+        return {
+            startMs: new Date(startDate).getTime(),
+            endMs: new Date(endDate).getTime(),
+        };
+    }, [startDate, endDate]);
 
-            getDataLoggerByTimeStamp({
-                loggerid: loggerid,
-                start: totalMilisecondStart.toString(),
-                end: totalMilisecondEnd.toString(),
-            })
-                .then((res) => {
-                    if (res?.data?.GetDataLoggerOfSiteByTimeStamp) {
-                        drawChart(res.data.GetDataLoggerOfSiteByTimeStamp);
-                    }
-                })
-                .catch((err) => console.error(err));
-        }
-    };
+    // "Xem" button
+    const onViewChartClicked = useCallback(() => {
+        const range = resolveRange();
+        if (range) fetchAndRender(range.startMs, range.endMs);
+    }, [resolveRange, fetchAndRender]);
 
-    const onView1DayClicked = () => {
-        const isAllow = isAllowGetData(startDate, endDate);
-        if (isAllow) {
-            const totalMilisecondEnd = new Date(endDate).getTime();
-            const temp = new Date(endDate);
-            temp.setDate(temp.getDate() - 1);
-            const totalMilisecondStart = temp.getTime();
+    // Quick-range buttons — same factory as ChartModal
+    const makeQuickRangeHandler = useCallback(
+        ({ subtract, grouped }: TimeRange) =>
+            () => {
+                const range = resolveRange();
+                if (!range) return;
+                const start = new Date(range.endMs);
+                subtract(start);
+                fetchAndRender(start.getTime(), range.endMs, grouped);
+            },
+        [resolveRange, fetchAndRender],
+    );
 
-            getDataLoggerByTimeStamp({
-                loggerid: loggerid,
-                start: totalMilisecondStart.toString(),
-                end: totalMilisecondEnd.toString(),
-            })
-                .then((res) => {
-                    if (res?.data?.GetDataLoggerOfSiteByTimeStamp) {
-                        drawChart(res.data.GetDataLoggerOfSiteByTimeStamp);
-                    }
-                })
-                .catch((err) => console.error(err));
-        }
-    };
+    // Pre-build handlers so they're stable across renders
+    const quickHandlers = useMemo(
+        () => TIME_RANGES.map((r) => makeQuickRangeHandler(r)),
+        [makeQuickRangeHandler],
+    );
 
-    const onView3DayClicked = () => {
-        const isAllow = isAllowGetData(startDate, endDate);
-        if (isAllow) {
-            const totalMilisecondEnd = new Date(endDate).getTime();
-            const temp = new Date(endDate);
-            temp.setDate(temp.getDate() - 3);
-            const totalMilisecondStart = temp.getTime();
-
-            getDataLoggerByTimeStamp({
-                loggerid: loggerid,
-                start: totalMilisecondStart.toString(),
-                end: totalMilisecondEnd.toString(),
-            })
-                .then((res) => {
-                    if (res?.data?.GetDataLoggerOfSiteByTimeStamp) {
-                        drawChart(res.data.GetDataLoggerOfSiteByTimeStamp);
-                    }
-                })
-                .catch((err) => console.error(err));
-        }
-    };
-
-    const onView1YearClicked = () => {
-        const isAllow = isAllowGetData(startDate, endDate);
-        if (isAllow) {
-            const totalMilisecondEnd = new Date(endDate).getTime();
-            const temp = new Date(endDate);
-            temp.setFullYear(temp.getFullYear() - 1);
-            const totalMilisecondStart = temp.getTime();
-
-            getDataLoggerByTimeStamp({
-                loggerid: loggerid,
-                start: totalMilisecondStart.toString(),
-                end: totalMilisecondEnd.toString(),
-            })
-                .then((res) => {
-                    if (res?.data?.GetDataLoggerOfSiteByTimeStamp) {
-                        drawChartYear(res.data.GetDataLoggerOfSiteByTimeStamp);
-                    }
-                })
-                .catch((err) => console.error(err));
-        }
-    };
-
-    const onView1WeekClicked = () => {
-        const isAllow = isAllowGetData(startDate, endDate);
-        if (isAllow) {
-            const totalMilisecondEnd = new Date(endDate).getTime();
-            const temp = new Date(endDate);
-            temp.setDate(temp.getDate() - 7);
-            const totalMilisecondStart = temp.getTime();
-
-            getDataLoggerByTimeStamp({
-                loggerid: loggerid,
-                start: totalMilisecondStart.toString(),
-                end: totalMilisecondEnd.toString(),
-            })
-                .then((res) => {
-                    if (res?.data?.GetDataLoggerOfSiteByTimeStamp) {
-                        drawChart(res.data.GetDataLoggerOfSiteByTimeStamp);
-                    }
-                })
-                .catch((err) => console.error(err));
-        }
-    };
-
-    const onView1MonthClicked = () => {
-        const isAllow = isAllowGetData(startDate, endDate);
-        if (isAllow) {
-            const totalMilisecondEnd = new Date(endDate).getTime();
-            const temp = new Date(endDate);
-            temp.setMonth(temp.getMonth() - 1);
-            const totalMilisecondStart = temp.getTime();
-
-            getDataLoggerByTimeStamp({
-                loggerid: loggerid,
-                start: totalMilisecondStart.toString(),
-                end: totalMilisecondEnd.toString(),
-            })
-                .then((res) => {
-                    if (res?.data?.GetDataLoggerOfSiteByTimeStamp) {
-                        drawChart(res.data.GetDataLoggerOfSiteByTimeStamp);
-                    }
-                })
-                .catch((err) => console.error(err));
-        }
-    };
+    // ---------------------------------------------------------------------------
+    // Render
+    // ---------------------------------------------------------------------------
 
     return (
         <Grid>
+            {/* Date inputs */}
             <Grid.Col span={{ base: 12, md: 4 }}>
-                <label htmlFor="startstart" style={{ fontWeight: 500 }}>
+                <label htmlFor="start" style={{ fontWeight: 500 }}>
                     Thời gian bắt đầu
                 </label>
                 <input
                     type="datetime-local"
                     id="start"
-                    name="trip-start"
                     value={startDate}
                     onChange={(e) => setStartDate(e.currentTarget.value)}
                     style={{
@@ -751,7 +397,6 @@ const ChartSiteModal = ({
                 <input
                     type="datetime-local"
                     id="end"
-                    name="trip-start"
                     value={endDate}
                     onChange={(e) => setEndDate(e.currentTarget.value)}
                     style={{
@@ -761,6 +406,7 @@ const ChartSiteModal = ({
                     }}
                 />
             </Grid.Col>
+
             <Grid.Col span={{ base: 12, md: 4 }}>
                 <Flex
                     justify="center"
@@ -776,58 +422,29 @@ const ChartSiteModal = ({
                     </Button>
                 </Flex>
             </Grid.Col>
+
+            {/* Quick-range buttons — generated from TIME_RANGES */}
             <Grid.Col span={{ base: 12 }}>
                 <Flex justify="center" gap="sm" align="center">
-                    <Button
-                        color="green"
-                        variant="filled"
-                        onClick={onView12hClicked}
-                    >
-                        Xem 12 giờ
-                    </Button>
-                    <Button
-                        color="green"
-                        variant="filled"
-                        onClick={onView1DayClicked}
-                    >
-                        Xem 1 ngày
-                    </Button>
-                    <Button
-                        color="green"
-                        variant="filled"
-                        onClick={onView3DayClicked}
-                    >
-                        Xem 3 ngày
-                    </Button>
-
-                    <Button
-                        color="green"
-                        variant="filled"
-                        onClick={onView1WeekClicked}
-                    >
-                        Xem 1 tuần
-                    </Button>
-                    <Button
-                        color="green"
-                        variant="filled"
-                        onClick={onView1MonthClicked}
-                    >
-                        Xem 1 tháng
-                    </Button>
-                    <Button
-                        color="green"
-                        variant="filled"
-                        onClick={onView1YearClicked}
-                    >
-                        Xem 1 năm
-                    </Button>
+                    {TIME_RANGES.map((range, i) => (
+                        <Button
+                            key={range.label}
+                            color="green"
+                            variant="filled"
+                            onClick={quickHandlers[i]}
+                        >
+                            {range.label}
+                        </Button>
+                    ))}
                 </Flex>
             </Grid.Col>
+
+            {/* Chart + pipe info */}
             <Grid.Col span={{ base: 12 }}>
                 <div
-                    id="chart"
+                    id={CHART_DOM_ID}
                     style={{ width: '100%', height: '400px' }}
-                ></div>
+                />
                 <Flex justify="end" align="center">
                     <div style={{ textAlign: 'right' }}>
                         <Text size="sm">Mã tuyến ống: {pipeid}</Text>
@@ -841,4 +458,4 @@ const ChartSiteModal = ({
     );
 };
 
-export default ChartSiteModal;
+export default React.memo(ChartSiteModal);

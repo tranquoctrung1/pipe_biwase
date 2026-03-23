@@ -1,23 +1,20 @@
 import { motion } from 'framer-motion';
-
 import { Grid } from '@mantine/core';
-
 import { TileLayer, useMap, useMapEvents, LayersControl } from 'react-leaflet';
-
 import 'leaflet/dist/leaflet.css';
-
-import React, { useState, useEffect } from 'react';
-
+import React, {
+    useState,
+    useEffect,
+    useRef,
+    useCallback,
+    useMemo,
+} from 'react';
 import {
     useGetDataDrawingPipeQuery,
     useGetSiteAndChannelQuery,
 } from '../__generated__/graphql';
-
 import uuid from 'react-uuid';
-
-//@ts-ignore
 import { debounce } from 'lodash';
-
 import { Button, Modal, ModalBody, ModalFooter, ModalHeader } from 'reactstrap';
 
 import ChartModal from '../components/chartModal';
@@ -35,538 +32,640 @@ import TableCurrentDataMap from '../components/tableCurrentDataMap';
 import ChartLostWater from '../components/chartLostWater';
 import ChartSiteModal from '../components/chartSiteModal';
 import TableCurrentPressureDataMap from '../components/tableCurrentPressureDataMap';
+import ChartSiteModalECharts from '../components/chartSiteModalECharts';
+import ChartModalECharts from '../components/chartModalECharts';
 
-const LegendMapMemo = React.memo(LegendMap);
-const TableAlarmMapMemo = React.memo(TableAlarmMap);
-const LostWaterMapMemo = React.memo(LostWaterMap);
-const SearchSiteMapMemo = React.memo(SearchSiteMap);
-const FilterGroupPipeMemo = React.memo(FilterGroupPipeMap);
-const ButtonMapMemo = React.memo(ButtonMap);
-const PolyLineMapMemo = React.memo(PolyLineMap);
-const MarkerMapMemo = React.memo(MarkerMap);
-const ShapeMapMemo = React.memo(ShapeMap);
-const MapContainerComponentMemo = React.memo(MapContainerComponent);
-const TableCurrentDataMapMemo = React.memo(TableCurrentDataMap);
-const TableCurrentPressureDataMapMemp = React.memo(TableCurrentPressureDataMap);
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface Channel {
+    ChannelId: string;
+    ChannelName: string;
+    Unit: string;
+}
+
+interface Site {
+    SiteId: string;
+    LoggerId: string;
+    Location: string;
+    Latitude: number;
+    Longitude: number;
+    StatusError: number;
+    DisplayGroup: string;
+    PipeId: string;
+    PipeName: string;
+    SizePipe: number;
+    LengthPipe: number;
+    Channels?: Channel[];
+}
+
+interface SiteRow extends Site {
+    STT: number;
+}
+
+interface FilterOption {
+    label: string;
+    value: string;
+    children: Array<{ label: string; value: string }>;
+}
+
+interface PipeLine {
+    Lines: [[number, number], [number, number]];
+    Color?: string;
+    Weight?: number;
+    Content?: React.ReactNode[];
+}
+
+interface GroupPipeItem {
+    GroupPipeId: string;
+    GroupPipeName: string;
+    IsHide: boolean;
+    Pipes: Array<{
+        PipeId: string;
+        PipeName: string;
+        Length: number;
+        Size: number;
+        BaseMax: number;
+        BaseMin: number;
+        Lines: PipeLine[];
+    }>;
+}
+
+type PanelKey =
+    | 'alarm'
+    | 'lostWater'
+    | 'filterSite'
+    | 'filterGroupPipe'
+    | 'legend'
+    | 'tableCurrentData'
+    | 'tableCurrentPressure';
+
+type PanelState = Record<PanelKey, boolean>;
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+const TOOLTIP_ZOOM_THRESHOLD = 14;
+const STORAGE_KEY_OPEN_TABLE = 'openCurrentTableData';
+
+// ---------------------------------------------------------------------------
+// Helpers — pure functions, defined outside the component
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the popup content for a pipe line.
+ * Moved out of the data-fetch callback so JSX is not created inside
+ * business-logic code and the function is stable across renders.
+ */
+function buildPipeContent(
+    groupPipeId: string,
+    groupPipeName: string,
+    pipeId: string,
+    pipeName: string,
+    length: number,
+    size: number,
+    baseMax: number,
+    baseMin: number,
+): React.ReactNode[] {
+    const row = (label: string, value: React.ReactNode) => (
+        <p key={uuid()}>
+            <span>{label} </span>
+            <b>{value}</b>
+        </p>
+    );
+
+    return [
+        row('Mã nhóm tuyến ống:', groupPipeId),
+        row('Tên nhóm tuyến ống:', groupPipeName),
+        row('Mã tuyến ống:', pipeId),
+        row('Tên tuyến ống:', pipeName),
+        row('Chiều dài ống:', length),
+        row('Kích thước ống:', size),
+        row('Ngưỡng trên:', baseMax),
+        row('Ngưỡng dưới:', baseMin),
+    ];
+}
+
+function getPipeWeight(size: number): number {
+    if (size <= 100) return 1;
+    if (size <= 200) return 2;
+    if (size <= 400) return 3;
+    return 4;
+}
+
+function getInitialPanelState(): PanelState {
+    const openTable = localStorage.getItem(STORAGE_KEY_OPEN_TABLE) === 'true';
+    return {
+        alarm: false,
+        lostWater: false,
+        filterSite: false,
+        filterGroupPipe: false,
+        legend: true,
+        tableCurrentData: openTable,
+        tableCurrentPressure: false,
+    };
+}
+
+// ---------------------------------------------------------------------------
+// Custom hooks
+// ---------------------------------------------------------------------------
+
+/**
+ * Manages all map-overlay panel open/close state in a single object,
+ * replacing ~14 individual boolean useState calls.
+ */
+function usePanelState() {
+    const [panels, setPanels] = useState<PanelState>(getInitialPanelState);
+
+    const toggle = useCallback((key: PanelKey) => {
+        setPanels((prev) => ({ ...prev, [key]: !prev[key] }));
+    }, []);
+
+    const close = useCallback((key: PanelKey) => {
+        setPanels((prev) => ({ ...prev, [key]: false }));
+    }, []);
+
+    return { panels, toggle, close };
+}
+
+/**
+ * Fetches and transforms site + channel data.
+ */
+function useSiteData(
+    getSiteAndChannelRefetch: ReturnType<
+        typeof useGetSiteAndChannelQuery
+    >['refetch'],
+) {
+    const [sites, setSites] = useState<Site[]>([]);
+    const [tableData, setTableData] = useState<SiteRow[]>([]);
+    const [filterSite, setFilterSite] = useState<FilterOption[]>([]);
+    const [filterSiteNS, setFilterSiteNS] = useState<FilterOption[]>([]);
+    const originFilterRef = useRef<{
+        site: FilterOption[];
+        siteNS: FilterOption[];
+    }>({ site: [], siteNS: [] });
+
+    const fetchAndProcess = useCallback(() => {
+        getSiteAndChannelRefetch()
+            .then(({ data }) => {
+                const raw = data?.GetSiteAndChannel;
+                if (!raw) return;
+
+                setSites(raw as Site[]);
+
+                // Table data (exclude error sites)
+                const rows: SiteRow[] = [];
+                let count = 1;
+                for (const item of raw) {
+                    if (item.StatusError !== 1) {
+                        rows.push({ ...(item as Site), STT: count++ });
+                    }
+                }
+                setTableData(rows);
+
+                // Filter trees
+                const dhnt: FilterOption[] = [];
+                const ns: FilterOption[] = [];
+
+                for (const item of raw as Site[]) {
+                    const node: FilterOption = {
+                        label: item.Location,
+                        value: item.SiteId,
+                        children: (item.Channels ?? []).map((ch) => ({
+                            label: `${ch.ChannelId}_${ch.ChannelName}`,
+                            value: ch.ChannelId,
+                        })),
+                    };
+
+                    if (item.DisplayGroup === 'DHNT') {
+                        dhnt.push(node);
+                    } else {
+                        ns.push(node);
+                    }
+                }
+
+                originFilterRef.current = { site: dhnt, siteNS: ns };
+                setFilterSite(dhnt);
+                setFilterSiteNS(ns);
+            })
+            .catch(console.error);
+    }, [getSiteAndChannelRefetch]);
+
+    // Debounced search filter
+    const handleSearch = useMemo(
+        () =>
+            debounce((value: string) => {
+                const { site, siteNS } = originFilterRef.current;
+                if (!value) {
+                    setFilterSite([...site]);
+                    setFilterSiteNS([...siteNS]);
+                    return;
+                }
+                const lv = value.toLowerCase();
+                setFilterSite(
+                    site.filter((el) => el.label.toLowerCase().includes(lv)),
+                );
+                setFilterSiteNS(
+                    siteNS.filter((el) => el.label.toLowerCase().includes(lv)),
+                );
+            }, 1000),
+        [],
+    );
+
+    const handleFilterSiteChanged = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            handleSearch(e.target.value);
+        },
+        [handleSearch],
+    );
+
+    return {
+        sites,
+        tableData,
+        filterSite,
+        filterSiteNS,
+        fetchAndProcess,
+        handleFilterSiteChanged,
+    };
+}
+
+/**
+ * Fetches and transforms pipe drawing data.
+ */
+function usePipeData(
+    getDataDrawingPipeRefetch: ReturnType<
+        typeof useGetDataDrawingPipeQuery
+    >['refetch'],
+) {
+    const [polylines, setPolylines] = useState<PipeLine[]>([]);
+    const [groupPipe, setGroupPipe] = useState<GroupPipeItem[]>([]);
+
+    const fetchAndProcess = useCallback(() => {
+        getDataDrawingPipeRefetch()
+            .then(({ data }) => {
+                const raw = data?.GetDataDrawingPipe;
+                if (!raw) return;
+
+                const lines: PipeLine[] = [];
+                const groups: GroupPipeItem[] = [];
+
+                for (const item of raw) {
+                    //@ts-ignore
+                    groups.push({ IsHide: true, ...(item as GroupPipeItem) });
+
+                    for (const pipe of (item as GroupPipeItem).Pipes) {
+                        for (const line of pipe.Lines) {
+                            lines.push({
+                                ...line,
+                                Weight: getPipeWeight(pipe.Size),
+                                Content: buildPipeContent(
+                                    //@ts-ignore
+                                    item.GroupPipeId,
+                                    //@ts-ignore
+                                    item.GroupPipeName,
+                                    pipe.PipeId,
+                                    pipe.PipeName,
+                                    pipe.Length,
+                                    pipe.Size,
+                                    pipe.BaseMax,
+                                    pipe.BaseMin,
+                                ),
+                            });
+                        }
+                    }
+                }
+
+                setPolylines(lines);
+                setGroupPipe(groups);
+            })
+            .catch(console.error);
+    }, [getDataDrawingPipeRefetch]);
+
+    return { polylines, groupPipe, setGroupPipe, fetchAndProcess };
+}
+
+// ---------------------------------------------------------------------------
+// SetMap — sub-component, must live inside MapContainer
+// ---------------------------------------------------------------------------
+
+interface SetMapProps {
+    mapRef: React.MutableRefObject<L.Map | null>;
+    onZoomChange: (zoom: number) => void;
+}
+
+const SetMap = React.memo(({ mapRef, onZoomChange }: SetMapProps) => {
+    const map = useMap();
+
+    // Sync the ref so the parent can call map methods imperatively
+    useEffect(() => {
+        mapRef.current = map;
+    }, [map, mapRef]);
+
+    const handleZoomEnd = useCallback(() => {
+        const zoom = map.getZoom();
+
+        map.eachLayer(
+            (
+                layer: L.Layer & {
+                    _tooltip?: { _container: HTMLElement };
+                    openTooltip?: () => void;
+                    closeTooltip?: () => void;
+                },
+            ) => {
+                if (!layer._tooltip) return;
+
+                if (zoom >= TOOLTIP_ZOOM_THRESHOLD) {
+                    layer.openTooltip?.();
+                    layer._tooltip._container.style.opacity = '1';
+                } else {
+                    layer.closeTooltip?.();
+                    layer._tooltip._container.style.opacity = '0';
+                }
+            },
+        );
+
+        onZoomChange(zoom);
+    }, [map, onZoomChange]);
+
+    useMapEvents({ zoomend: handleZoomEnd });
+
+    return null;
+});
+
+SetMap.displayName = 'SetMap';
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
 
 const MapPage = () => {
-    const [polylines, setPolylines] = useState([]);
-    const [sites, setSites] = useState([]);
-    const [filterSite, setFilterSite] = useState([]);
-    const [filterSiteNS, setFilterSiteNS] = useState([]);
-    const [originFilterSite, setOriginFilterSite] = useState([]);
-    const [originFilterSiteNS, setOriginFilterSiteNS] = useState([]);
-    const [currentChannel, setCurrentChannel] = useState(null);
-    const [currentSite, setCurrentSite] = useState(null);
-    const [groupPipe, setGroupPipe] = useState([]);
-    const [zoomMap, setZoomMap] = useState(null);
+    // Map instance kept in a ref — never triggers re-renders
+    const mapRef = useRef<L.Map | null>(null);
 
+    // Panel visibility
+    const { panels, toggle, close } = usePanelState();
+
+    // Zoom level (used by MarkerMap for clustering decisions)
+    const [zoomMap, setZoomMap] = useState<number | null>(null);
+
+    // Modal state
+    const [currentChannel, setCurrentChannel] = useState<Channel | null>(null);
+    const [currentSite, setCurrentSite] = useState<Site | null>(null);
     const [modal, setModal] = useState(false);
     const [modalChartLostWater, setModalChartLostWater] = useState(false);
     const [modalChartSite, setModalChartSite] = useState(false);
-    const [openAlarm, setOpenAlarm] = useState(false);
-    const [openLostWater, setOpenLostWater] = useState(false);
-    const [openFilterSite, setOpenFilterSite] = useState(false);
-    const [openFilterGroupPipe, setOpenFilterGroupPipe] = useState(false);
-    const [openLegend, setOpenLegend] = useState(true);
-    const [openTableCurrentData, setOpenTableCurrentData] = useState(
-        localStorage.getItem('openCurrentTableData') === 'true' ? true : false,
-    );
-    const [lostWaterMode, setLostWaterMode] = useState('');
-    const [openTableCurrentPressureData, setOpenTableCurrentPressureData] =
-        useState(false);
-    // const [showLabel, setShowLabel] = useState(false);
+    const [lostWaterMode, setLostWaterMode] = useState<'NS' | 'NT' | ''>('');
 
-    //const [detectIOS, setDetectIOS] = useState(false);
-
-    const [whiteBackgroundCurrentDataTable, setWhiteBackgroudCurrentDataTable] =
-        useState(false);
-    const [alwaysOpenCurrentDataTable, setAlwaysOpenCurrentDataTable] =
-        useState(
-            localStorage.getItem('openCurrentTableData') === 'true'
-                ? true
-                : false,
-        );
-
+    // UI preferences
+    const [whiteBackground, setWhiteBackground] = useState(false);
     const [showRegion, setShowRegion] = useState(true);
+    const [alwaysOpenCurrentDataTable, setAlwaysOpenCurrentDataTable] =
+        useState(() => localStorage.getItem(STORAGE_KEY_OPEN_TABLE) === 'true');
 
-    const [data, setData] = useState([]);
-
-    const { refetch: getDataDrawingPipeRefetch } = useGetDataDrawingPipeQuery();
+    // GraphQL
     const { refetch: getSiteAndChannelRefetch } = useGetSiteAndChannelQuery();
+    const { refetch: getDataDrawingPipeRefetch } = useGetDataDrawingPipeQuery();
 
-    //@ts-ignore
-    let map = null;
+    // Custom hooks
+    const {
+        sites,
+        tableData,
+        filterSite,
+        filterSiteNS,
+        fetchAndProcess: fetchSites,
+        handleFilterSiteChanged,
+    } = useSiteData(getSiteAndChannelRefetch);
 
-    const toggle = () => setModal(!modal);
-    const toggleChartLostWater = () => {
-        setModalChartLostWater(!modalChartLostWater);
-    };
-    const toggleChartSite = () => {
-        setModalChartSite(!modalChartSite);
-    };
+    const {
+        polylines,
+        groupPipe,
+        setGroupPipe,
+        fetchAndProcess: fetchPipes,
+    } = usePipeData(getDataDrawingPipeRefetch);
 
-    const getDataSiteAndChannel = () => {
-        getSiteAndChannelRefetch()
-            .then((res) => {
-                if (res?.data?.GetSiteAndChannel) {
-                    //@ts-ignore
-                    setSites([...res.data.GetSiteAndChannel]);
-
-                    const temp = [];
-
-                    let count = 1;
-                    for (const item of res.data.GetSiteAndChannel) {
-                        if (item.StatusError !== 1) {
-                            const obj = {
-                                ...item,
-                                STT: count++,
-                            };
-
-                            temp.push(obj);
-                        }
-                    }
-
-                    //@ts-ignore
-                    setData([...temp]);
-                }
-            })
-            .catch((err) => console.log(err));
-    };
-
-    const getFilterSite = () => {
-        getSiteAndChannelRefetch()
-            .then((res) => {
-                if (res?.data?.GetSiteAndChannel) {
-                    const tempFilterSite = [];
-                    const tempFilterSiteNS = [];
-
-                    for (const item of res.data.GetSiteAndChannel) {
-                        const objFilterSite = {
-                            label: `${item.Location}`,
-                            value: item.SiteId,
-                            children: [],
-                        };
-
-                        //@ts-ignore
-                        if (item.Channels?.length > 0) {
-                            //@ts-ignore
-                            for (const channel of item.Channels) {
-                                const objChannel = {
-                                    //@ts-ignore
-                                    label: `${channel.ChannelId}_${channel.ChannelName}`,
-                                    //@ts-ignore
-                                    value: channel.ChannelId,
-                                };
-                                // @ts-ignore
-                                objFilterSite.children.push(objChannel);
-                            }
-                        }
-                        if (item.DisplayGroup === 'DHNT') {
-                            tempFilterSite.push(objFilterSite);
-                        } else {
-                            tempFilterSiteNS.push(objFilterSite);
-                        }
-                    }
-                    //@ts-ignore
-                    setFilterSite([...tempFilterSite]);
-                    //@ts-ignore
-                    setFilterSiteNS([...tempFilterSiteNS]);
-                    //@ts-ignore
-                    setOriginFilterSite([...tempFilterSite]);
-                    //@ts-ignore
-                    setOriginFilterSiteNS([...tempFilterSiteNS]);
-                }
-            })
-            .catch((err) => console.log(err));
-    };
-
-    const getDataDrawingPipe = () => {
-        getDataDrawingPipeRefetch()
-            .then((res) => {
-                if (res?.data?.GetDataDrawingPipe) {
-                    const temp = [];
-                    for (const item of res.data.GetDataDrawingPipe) {
-                        //@ts-ignore
-                        for (const pipe of item.Pipes) {
-                            //@ts-ignore
-                            for (const line of pipe.Lines) {
-                                const content = [
-                                    <p key={uuid()}>
-                                        <span>Mã nhóm tuyến ống: </span>
-                                        <b> {item?.GroupPipeId}</b>
-                                    </p>,
-                                    <p key={uuid()}>
-                                        <span>Tên nhóm tuyến ống: </span>
-                                        <b> {item?.GroupPipeName}</b>
-                                    </p>,
-                                    <p key={uuid()}>
-                                        <span>Mã tuyến ống: </span>
-                                        <b> {pipe?.PipeId}</b>
-                                    </p>,
-                                    <p key={uuid()}>
-                                        <span>Tên tuyến ống: </span>
-                                        <b> {pipe?.PipeName}</b>
-                                    </p>,
-                                    <p key={uuid()}>
-                                        <span>Chiều dài ống: </span>
-                                        <b> {pipe?.Length}</b>
-                                    </p>,
-                                    <p key={uuid()}>
-                                        <span>Kích thước ống: </span>
-                                        <b> {pipe?.Size}</b>
-                                    </p>,
-                                    <p key={uuid()}>
-                                        <span>Ngưỡng trên: </span>
-                                        <b>{pipe?.BaseMax}</b>
-                                    </p>,
-                                    <p key={uuid()}>
-                                        <span>Ngưỡng dưới: </span>
-                                        <b> {pipe?.BaseMin}</b>
-                                    </p>,
-                                ];
-
-                                const obj = {
-                                    ...line,
-                                    Weight:
-                                        //@ts-ignore
-                                        pipe?.Size <= 100
-                                            ? 1
-                                            : //@ts-ignore
-                                            pipe?.Size <= 200
-                                            ? 2
-                                            : //@ts-ignore
-                                            pipe?.Size <= 400
-                                            ? 3
-                                            : 4,
-                                    Content: content,
-                                };
-
-                                temp.push(obj);
-                            }
-                        }
-                    }
-                    //@ts-ignore
-                    setPolylines([...temp]);
-                }
-            })
-            .catch((err) => console.log(err));
-    };
-
-    const getGroupPipe = () => {
-        getDataDrawingPipeRefetch()
-            .then((res) => {
-                if (res?.data?.GetDataDrawingPipe) {
-                    const temp = [];
-
-                    for (const item of res.data.GetDataDrawingPipe) {
-                        const obj = {
-                            IsHide: true,
-                            ...item,
-                        };
-
-                        temp.push(obj);
-                    }
-                    //@ts-ignore
-                    setGroupPipe([...temp]);
-                }
-            })
-            .catch((err) => console.log(err));
-    };
-
-    const handleSearchDebounce = debounce(async (value: any) => {
-        let filter = [];
-        let filterNS = [];
-
-        if (value === '') {
-            filter = [...originFilterSite];
-            filterNS = [...originFilterSiteNS];
-        } else {
-            filter = originFilterSite.filter(
-                (el) =>
-                    //@ts-ignore
-                    el.label.toLowerCase().indexOf(value.toLowerCase()) !== -1,
-            );
-            filterNS = originFilterSiteNS.filter(
-                (el) =>
-                    //@ts-ignore
-                    el.label.toLowerCase().indexOf(value.toLowerCase()) !== -1,
-            );
-        }
-        setFilterSite([...filter]);
-        setFilterSiteNS([...filterNS]);
-    }, 1000);
-
-    const handleFilterSiteChanged = (e: any) => {
-        handleSearchDebounce(e.target.value);
-    };
-
-    // //detect ios device
-    // const iOS = () => {
-    //     return (
-    //         [
-    //             'iPad Simulator',
-    //             'iPhone Simulator',
-    //             'iPod Simulator',
-    //             'iPad',
-    //             'iPhone',
-    //             'iPod',
-    //         ].includes(navigator.platform) ||
-    //         // iPad on iOS 13 detection
-    //         (navigator.userAgent.includes('Mac') && 'ontouchend' in document)
-    //     );
-    // };
+    // ---------------------------------------------------------------------------
+    // Data loading
+    // ---------------------------------------------------------------------------
 
     useEffect(() => {
-        getDataDrawingPipe();
-        getDataSiteAndChannel();
-        getFilterSite();
-        getGroupPipe();
-        //setDetectIOS(iOS());
-
-        if (
-            localStorage.getItem('openCurrentTableData') === undefined ||
-            localStorage.getItem('openCurrentTableData') === null
-        ) {
-            localStorage.setItem('openCurrentTableData', 'true');
-        }
-    }, []);
-
-    //set resize for leaflet map
-    setTimeout(function () {
-        window.dispatchEvent(new Event('resize'));
-    }, 0);
+        fetchSites();
+        fetchPipes();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         const interval = setInterval(() => {
-            getDataDrawingPipe();
-            getDataSiteAndChannel();
-        }, 1000 * 60 * 5);
+            fetchSites();
+            fetchPipes();
+        }, REFRESH_INTERVAL_MS);
         return () => clearInterval(interval);
-    }, []);
+    }, [fetchSites, fetchPipes]);
 
-    const onpenChartModalClick = (channel: any) => {
+    // ---------------------------------------------------------------------------
+    // Stable callbacks
+    // ---------------------------------------------------------------------------
+
+    const handleZoomChange = useMemo(
+        () => debounce((zoom: number) => setZoomMap(zoom), 1000),
+        [],
+    );
+
+    // Clean up the debounce on unmount
+    useEffect(() => () => handleZoomChange.cancel(), [handleZoomChange]);
+
+    const openChartModal = useCallback((channel: Channel) => {
         setCurrentChannel(channel);
         setModal(true);
-    };
+    }, []);
 
-    const openModalChartSiteClick = (site: any) => {
+    const openChartSiteModal = useCallback((site: Site) => {
         setCurrentSite(site);
         setModalChartSite(true);
-    };
+    }, []);
 
-    const onSiteTreeClicked = (e: any) => {
-        //@ts-ignore
-        const find = sites.find((el) => el.SiteId === e);
-        if (find !== undefined) {
-            //@ts-ignore
-            map.eachLayer((layer) => {
-                //@ts-ignore
-                if (layer._latlng !== undefined) {
+    const onSiteTreeClicked = useCallback(
+        (siteId: string) => {
+            const found = sites.find((s) => s.SiteId === siteId);
+            if (!found || !mapRef.current) return;
+
+            mapRef.current.eachLayer(
+                (
+                    layer: L.Layer & {
+                        _latlng?: L.LatLng;
+                        fire?: (event: string) => void;
+                    },
+                ) => {
                     if (
-                        //@ts-ignore
-                        layer._latlng.lat == find.Latitude &&
-                        //@ts-ignore
-                        layer._latlng.lng == find.Longitude
+                        layer._latlng?.lat === found.Latitude &&
+                        layer._latlng?.lng === found.Longitude
                     ) {
-                        layer.fire('click');
-                        //@ts-ignore
-                        map.flyTo(layer._latlng, 18);
+                        layer.fire?.('click');
+                        mapRef.current?.flyTo(layer._latlng, 18);
+                    }
+                },
+            );
+        },
+        [sites],
+    );
+
+    const onGroupPipeChanged = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>, groupPipeId: string) => {
+            setGroupPipe((prev) => {
+                const updated = [...prev];
+                const idx = updated.findIndex(
+                    (g) => g.GroupPipeId === groupPipeId,
+                );
+                if (idx === -1) return prev;
+
+                updated[idx] = { ...updated[idx], IsHide: e.target.checked };
+
+                if (!mapRef.current) return updated;
+
+                // Toggle layer visibility imperatively
+                for (const pipe of updated[idx].Pipes) {
+                    for (const line of pipe.Lines) {
+                        mapRef.current.eachLayer(
+                            (
+                                layer: L.Layer & {
+                                    _latlngs?: L.LatLng[];
+                                    _latlng?: L.LatLng;
+                                    _path?: HTMLElement;
+                                    _icon?: HTMLElement;
+                                    closePopup?: () => void;
+                                    closeTooltip?: () => void;
+                                },
+                            ) => {
+                                const show = e.target.checked;
+                                const ll = line.Lines;
+
+                                // Polyline layers
+                                if (
+                                    layer._latlngs?.length &&
+                                    ll[0][0] === layer._latlngs[0].lat &&
+                                    ll[0][1] === layer._latlngs[0].lng &&
+                                    ll[1][0] === layer._latlngs[1].lat &&
+                                    ll[1][1] === layer._latlngs[1].lng
+                                ) {
+                                    if (layer._path) {
+                                        layer._path.style.display = show
+                                            ? ''
+                                            : 'none';
+                                        if (!show) {
+                                            layer.closePopup?.();
+                                            layer.closeTooltip?.();
+                                        }
+                                    }
+                                }
+
+                                // Marker layers at line endpoints
+                                if (
+                                    layer._latlng &&
+                                    ((layer._latlng.lat === ll[0][0] &&
+                                        layer._latlng.lng === ll[0][1]) ||
+                                        (layer._latlng.lat === ll[1][0] &&
+                                            layer._latlng.lng === ll[1][1]))
+                                ) {
+                                    if (layer._icon) {
+                                        layer._icon.style.display = show
+                                            ? ''
+                                            : 'none';
+                                        if (!show) {
+                                            layer.closePopup?.();
+                                            layer.closeTooltip?.();
+                                        }
+                                    }
+                                }
+                            },
+                        );
                     }
                 }
+
+                return updated;
             });
-        }
-    };
+        },
+        [],
+    );
 
-    const openTableAlarmClicked = () => {
-        setOpenAlarm(!openAlarm);
-    };
+    const onAlwaysShowCurrentDataTable = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            localStorage.setItem(
+                STORAGE_KEY_OPEN_TABLE,
+                String(e.target.checked),
+            );
+            setAlwaysOpenCurrentDataTable(e.target.checked);
+        },
+        [],
+    );
 
-    const onTableAlarmCloseClicked = () => {
-        setOpenAlarm(false);
-    };
+    const onWhiteBackgroundChanged = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            setWhiteBackground(e.target.checked);
+        },
+        [],
+    );
 
-    const openSearchSiteClicked = () => {
-        setOpenFilterSite(!openFilterSite);
-    };
+    const onShowRegionChanged = useCallback(
+        (e: React.ChangeEvent<HTMLInputElement>) => {
+            setShowRegion(e.target.checked);
+        },
+        [],
+    );
 
-    const onSearhSiteCloseClicked = () => {
-        setOpenFilterSite(false);
-    };
+    // Pre-bound panel handlers — stable references, no inline arrow functions in JSX
+    const toggleAlarm = useCallback(() => toggle('alarm'), [toggle]);
+    const toggleLostWater = useCallback(() => toggle('lostWater'), [toggle]);
+    const toggleFilterSite = useCallback(() => toggle('filterSite'), [toggle]);
+    const toggleFilterGroupPipe = useCallback(
+        () => toggle('filterGroupPipe'),
+        [toggle],
+    );
+    const toggleLegend = useCallback(() => toggle('legend'), [toggle]);
+    const toggleTableCurrentData = useCallback(
+        () => toggle('tableCurrentData'),
+        [toggle],
+    );
+    const toggleTableCurrentPressure = useCallback(
+        () => toggle('tableCurrentPressure'),
+        [toggle],
+    );
+    const closeAlarm = useCallback(() => close('alarm'), [close]);
+    const closeLostWater = useCallback(() => close('lostWater'), [close]);
+    const closeFilterSite = useCallback(() => close('filterSite'), [close]);
+    const closeFilterGroupPipe = useCallback(
+        () => close('filterGroupPipe'),
+        [close],
+    );
+    const closeTableCurrentData = useCallback(
+        () => close('tableCurrentData'),
+        [close],
+    );
+    const closeTableCurrentPressure = useCallback(
+        () => close('tableCurrentPressure'),
+        [close],
+    );
 
-    const openLostWaterClicked = () => {
-        setOpenLostWater(!openLostWater);
-    };
+    const closeModal = useCallback(() => setModal(false), []);
+    const closeModalChartSite = useCallback(() => setModalChartSite(false), []);
+    const closeModalChartLostWater = useCallback(
+        () => setModalChartLostWater(false),
+        [],
+    );
 
-    const onLostWaterCloseClicked = () => {
-        setOpenLostWater(false);
-    };
-
-    const openFilterGroupPipeClicked = () => {
-        setOpenFilterGroupPipe(!openFilterGroupPipe);
-    };
-
-    const onFilterGroupPipeCloseClicked = () => {
-        setOpenFilterGroupPipe(false);
-    };
-
-    const onLegendHideClicked = () => {
-        setOpenLegend(!openLegend);
-    };
-
-    const onTabelCurrentDataCloseClicked = () => {
-        setOpenTableCurrentData(false);
-    };
-
-    const onTableCurrentDataClicked = () => {
-        setOpenTableCurrentData(!openTableCurrentData);
-    };
-
-    const onGroupPipeChanged = (e: any, groupPipeId: string) => {
-        const index = groupPipe.findIndex(
-            //@ts-ignore
-            (el) => el.GroupPipeId === groupPipeId,
-        );
-
-        if (groupPipe[index] !== undefined) {
-            //@ts-ignore
-            groupPipe[index].IsHide = e.target.checked;
-            //@ts-ignore
-            for (const pipe of groupPipe[index].Pipes) {
-                //@ts-ignore
-                for (const line of pipe.Lines) {
-                    //@ts-ignore
-                    map.eachLayer((layer) => {
-                        if (
-                            layer._latlngs !== undefined &&
-                            layer._latlngs.length > 0
-                        ) {
-                            if (
-                                line.Lines[0][0] === layer._latlngs[0].lat &&
-                                line.Lines[0][1] === layer._latlngs[0].lng &&
-                                line.Lines[1][0] === layer._latlngs[1].lat &&
-                                line.Lines[1][1] === layer._latlngs[1].lng
-                            ) {
-                                if (layer._path !== undefined) {
-                                    if (e.target.checked === false) {
-                                        layer._path.style.display = 'none';
-                                        layer.closePopup();
-                                        layer.closeTooltip();
-                                    } else {
-                                        layer._path.style.display = '';
-                                    }
-                                }
-                            }
-                        }
-                        if (layer._latlng !== undefined) {
-                            if (
-                                (layer._latlng.lat === line.Lines[0][0] &&
-                                    layer._latlng.lng === line.Lines[0][1]) ||
-                                (layer._latlng.lat === line.Lines[1][0] &&
-                                    layer._latlng.lng === line.Lines[1][1])
-                            ) {
-                                if (layer._icon !== undefined) {
-                                    if (e.target.checked === false) {
-                                        layer._icon.style.display = 'none';
-                                        layer.closePopup();
-                                        layer.closeTooltip();
-                                    } else {
-                                        layer._icon.style.display = '';
-                                    }
-                                }
-                            }
-                        }
-                    });
-                }
-            }
-
-            setGroupPipe([...groupPipe]);
-        }
-    };
-
-    // const onShowSiteLabel = (e: any) => {
-    //     //@ts-ignore
-    //     setShowLabel(e.target.checked);
-    //     //@ts-ignore
-    //     map.eachLayer((layer) => {
-    //         if (layer._latlng !== undefined) {
-    //             if (e.target.checked === true) {
-    //                 layer.openTooltip();
-    //             } else {
-    //                 layer.closeTooltip();
-    //             }
-    //         }
-    //     });
-    // };
-
-    const onAlwaysShowCurrentDataTable = (e: any) => {
-        localStorage.setItem(
-            'openCurrentTableData',
-            e.target.checked.toString(),
-        );
-
-        setAlwaysOpenCurrentDataTable(e.target.checked);
-    };
-
-    const onWhiteBackgroundCurrentDataTableChanged = (e: any) => {
-        setWhiteBackgroudCurrentDataTable(e.target.checked);
-    };
-
-    const onShowRegionChanged = (e: any) => {
-        setShowRegion(e.target.checked);
-    };
-
-    const onChartLostWaterNSClicked = () => {
+    const onChartLostWaterNSClicked = useCallback(() => {
         setLostWaterMode('NS');
         setModalChartLostWater(true);
-    };
+    }, []);
 
-    const onChartLostWaterNTClicked = () => {
+    const onChartLostWaterNTClicked = useCallback(() => {
         setLostWaterMode('NT');
         setModalChartLostWater(true);
-    };
+    }, []);
 
-    const onTableCurrentPressureClicked = () => {
-        setOpenTableCurrentPressureData(!openTableCurrentPressureData);
-    };
-
-    const onTableCurrentPressureDataCloseClicked = () => {
-        setOpenTableCurrentPressureData(false);
-    };
-
-    const handelSetZoomMap = debounce((zoom: any) => {
-        setZoomMap(zoom);
-    }, 1000);
-
-    const SetMap = () => {
-        map = useMap();
-
-        useMapEvents({
-            zoomend: () => {
-                //@ts-ignore
-                if (map.getZoom() >= 14) {
-                    //@ts-ignore
-                    map.eachLayer((layer: any) => {
-                        if (layer._tooltip !== undefined) {
-                            layer.openTooltip();
-                            layer._tooltip._container.style.opacity = '1';
-                        }
-                    });
-                } else {
-                    //@ts-ignore
-                    map.eachLayer((layer: any) => {
-                        if (layer._tooltip !== undefined) {
-                            layer.closeTooltip();
-                            layer._tooltip._container.style.opacity = '0';
-                        }
-                    });
-                }
-                //@ts-ignore
-                handelSetZoomMap(map.getZoom());
-            },
-        });
-        return null;
-    };
+    // ---------------------------------------------------------------------------
+    // Render
+    // ---------------------------------------------------------------------------
 
     return (
         <motion.div
@@ -576,77 +675,78 @@ const MapPage = () => {
         >
             <Grid>
                 <Grid.Col span={{ base: 12 }}>
-                    <MapContainerComponentMemo
-                    /*detectIOS={detectIOS}*/
-                    >
-                        <SetMap />
+                    <MapContainerComponent>
+                        <SetMap
+                            mapRef={mapRef}
+                            onZoomChange={handleZoomChange}
+                        />
+
+                        {/* Base satellite layer */}
                         <TileLayer
                             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                             url="http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
                             maxNativeZoom={18}
                             maxZoom={30}
                         />
+
+                        {/* Optional street-map overlay */}
                         <LayersControl position="topright">
-                            <>
-                                <LayersControl.Overlay name="bản đồ giao thông">
-                                    <TileLayer
-                                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                                        maxNativeZoom={18}
-                                        maxZoom={30}
-                                    />
-                                </LayersControl.Overlay>
-                            </>
+                            <LayersControl.Overlay name="bản đồ giao thông">
+                                <TileLayer
+                                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                    maxNativeZoom={18}
+                                    maxZoom={30}
+                                />
+                            </LayersControl.Overlay>
                         </LayersControl>
-                        {/* Shape Map */}
-                        <ShapeMapMemo showRegion={showRegion} />
-                        {/* Marker Map */}
-                        <MarkerMapMemo
+
+                        <ShapeMap showRegion={showRegion} />
+
+                        <MarkerMap
+                            //@ts-ignore
                             sites={sites}
-                            onpenChartModalClick={onpenChartModalClick}
-                            openModalChartSiteClick={openModalChartSiteClick}
+                            onpenChartModalClick={openChartModal}
+                            //@ts-ignore
+                            openModalChartSiteClick={openChartSiteModal}
                             zoom={zoomMap}
                         />
 
-                        {/* Polyline Map */}
-                        <PolyLineMapMemo polylines={polylines} />
-                        {/* Button Map */}
-                        <ButtonMapMemo
-                            onAlarmTableClicked={openTableAlarmClicked}
-                            onLostWaterClicked={openLostWaterClicked}
-                            onSearchSiteClicked={openSearchSiteClicked}
-                            onFilterGroupPipeClicked={
-                                openFilterGroupPipeClicked
-                            }
-                            onLegendHideClicked={onLegendHideClicked}
-                            onTableCurrentDataClicked={
-                                onTableCurrentDataClicked
-                            }
+                        <PolyLineMap polylines={polylines} />
+
+                        <ButtonMap
+                            onAlarmTableClicked={toggleAlarm}
+                            onLostWaterClicked={toggleLostWater}
+                            onSearchSiteClicked={toggleFilterSite}
+                            onFilterGroupPipeClicked={toggleFilterGroupPipe}
+                            onLegendHideClicked={toggleLegend}
+                            onTableCurrentDataClicked={toggleTableCurrentData}
                             onTableCurrentPressureClicked={
-                                onTableCurrentPressureClicked
+                                toggleTableCurrentPressure
                             }
-                            openAlarm={openAlarm}
-                            openLostWater={openLostWater}
-                            openFilterSite={openFilterSite}
-                            openFilterGroupPipe={openFilterGroupPipe}
-                            openLegend={openLegend}
-                            openTableCurrentData={openTableCurrentData}
+                            openAlarm={panels.alarm}
+                            openLostWater={panels.lostWater}
+                            openFilterSite={panels.filterSite}
+                            openFilterGroupPipe={panels.filterGroupPipe}
+                            openLegend={panels.legend}
+                            openTableCurrentData={panels.tableCurrentData}
                             openTableCurrentPressureData={
-                                openTableCurrentPressureData
+                                panels.tableCurrentPressure
                             }
                         />
-                        {/* Table Alarm */}
-                        <TableAlarmMapMemo
-                            openAlarm={openAlarm}
-                            data={data}
-                            onTableAlarmCloseClicked={onTableAlarmCloseClicked}
+
+                        <TableAlarmMap
+                            openAlarm={panels.alarm}
+                            //@ts-ignore
+                            data={tableData}
+                            onTableAlarmCloseClicked={closeAlarm}
                         />
-                        {/* Legend  */}
-                        <LegendMapMemo openLegend={openLegend} />
-                        {/* Lost Water */}
-                        <LostWaterMapMemo
-                            openLostWater={openLostWater}
-                            onLostWaterCloseClicked={onLostWaterCloseClicked}
+
+                        <LegendMap openLegend={panels.legend} />
+
+                        <LostWaterMap
+                            openLostWater={panels.lostWater}
+                            onLostWaterCloseClicked={closeLostWater}
                             onChartLostWaterNSClicked={
                                 onChartLostWaterNSClicked
                             }
@@ -654,31 +754,25 @@ const MapPage = () => {
                                 onChartLostWaterNTClicked
                             }
                         />
-                        {/* Search Site */}
-                        <SearchSiteMapMemo
-                            openFilterSite={openFilterSite}
+
+                        <SearchSiteMap
+                            openFilterSite={panels.filterSite}
                             filterSite={filterSite}
                             filterSiteNS={filterSiteNS}
                             handleFilterSiteChanged={handleFilterSiteChanged}
                             onSiteTreeClicked={onSiteTreeClicked}
-                            onSearhSiteCloseClicked={onSearhSiteCloseClicked}
+                            onSearhSiteCloseClicked={closeFilterSite}
                         />
-                        {/* Filter Group Pipe */}
-                        <FilterGroupPipeMemo
+
+                        <FilterGroupPipeMap
                             groupPipe={groupPipe}
-                            openFilterGroupPipe={openFilterGroupPipe}
+                            openFilterGroupPipe={panels.filterGroupPipe}
                             onGroupPipeChanged={onGroupPipeChanged}
-                            // showLabel={showLabel}
-                            // onShowSiteLabel={onShowSiteLabel}
-                            onFilterGroupPipeCloseClicked={
-                                onFilterGroupPipeCloseClicked
-                            }
-                            whiteBackgroundCurrentDataTable={
-                                whiteBackgroundCurrentDataTable
-                            }
+                            onFilterGroupPipeCloseClicked={closeFilterGroupPipe}
+                            whiteBackgroundCurrentDataTable={whiteBackground}
                             showRegion={showRegion}
                             onWhiteBackgroundCurrentDataTableChanged={
-                                onWhiteBackgroundCurrentDataTableChanged
+                                onWhiteBackgroundChanged
                             }
                             onShowRegionChanged={onShowRegionChanged}
                             alwaysOpenCurrentDataTable={
@@ -689,121 +783,101 @@ const MapPage = () => {
                             }
                         />
 
-                        {/* Table Current Data  */}
-                        <TableCurrentDataMapMemo
-                            openTableCurrentData={openTableCurrentData}
+                        <TableCurrentDataMap
+                            openTableCurrentData={panels.tableCurrentData}
                             onTabelCurrentDataCloseClicked={
-                                onTabelCurrentDataCloseClicked
+                                closeTableCurrentData
                             }
-                            whiteBackgroundCurrentDataTable={
-                                whiteBackgroundCurrentDataTable
-                            }
+                            whiteBackgroundCurrentDataTable={whiteBackground}
                         />
-                        {/* Table current pressure data  */}
-                        <TableCurrentPressureDataMapMemp
+
+                        <TableCurrentPressureDataMap
                             openTableCurrentPressureData={
-                                openTableCurrentPressureData
+                                panels.tableCurrentPressure
                             }
                             onTableCurrentPressureDataCloseClicked={
-                                onTableCurrentPressureDataCloseClicked
+                                closeTableCurrentPressure
                             }
-                        ></TableCurrentPressureDataMapMemp>
-                    </MapContainerComponentMemo>
+                        />
+                    </MapContainerComponent>
                 </Grid.Col>
-                <div>
-                    <Modal
-                        isOpen={modal}
-                        toggle={toggle}
-                        centered={true}
-                        size="xl"
-                    >
-                        <ModalHeader toggle={toggle}>
-                            {/* @ts-ignore */}
-                            Biểu đồ {currentSite?.Location}
-                        </ModalHeader>
-                        <ModalBody>
-                            {currentChannel !== null ? (
-                                <ChartModal
-                                    //@ts-ignore
-                                    channelid={currentChannel?.ChannelId}
-                                    //@ts-ignore
-                                    channelname={currentChannel?.ChannelName}
-                                    //@ts-ignore
-                                    unit={currentChannel?.Unit}
-                                ></ChartModal>
-                            ) : null}
-                        </ModalBody>
-                        <ModalFooter>
-                            <Button color="danger" onClick={toggle}>
-                                Đóng
-                            </Button>
-                        </ModalFooter>
-                    </Modal>
-                </div>
-                <div>
-                    <Modal
-                        isOpen={modalChartSite}
-                        toggle={toggleChartSite}
-                        centered={true}
-                        size="xl"
-                    >
-                        <ModalHeader toggle={toggleChartSite}>
-                            {/* @ts-ignore */}
-                            Biểu đồ {currentSite?.Location}
-                        </ModalHeader>
-                        <ModalBody>
-                            {currentSite !== null ? (
-                                <ChartSiteModal
-                                    //@ts-ignore
-                                    siteid={currentSite.SiteId}
-                                    //@ts-ignore
-                                    loggerid={currentSite.LoggerId}
-                                    //@ts-ignore
-                                    location={currentSite.Location}
-                                    //@ts-ignore
-                                    pipeid={currentSite.PipeId}
-                                    //@ts-ignore
-                                    pipename={currentSite.PipeName}
-                                    //@ts-ignore
-                                    sizepipe={currentSite.SizePipe}
-                                    //@ts-ignore
-                                    lengthpipe={currentSite.LengthPipe}
-                                ></ChartSiteModal>
-                            ) : null}
-                        </ModalBody>
-                        <ModalFooter>
-                            <Button color="danger" onClick={toggleChartSite}>
-                                Đóng
-                            </Button>
-                        </ModalFooter>
-                    </Modal>
-                </div>
-                <div>
-                    <Modal
-                        isOpen={modalChartLostWater}
-                        toggle={toggleChartLostWater}
-                        centered={true}
-                        size="lg"
-                    >
-                        <ModalHeader toggle={toggleChartLostWater}>
-                            Biểu đồ dữ liệu
-                        </ModalHeader>
-                        <ModalBody>
-                            <ChartLostWater
-                                lostWaterMode={lostWaterMode}
-                            ></ChartLostWater>
-                        </ModalBody>
-                        <ModalFooter>
-                            <Button
-                                color="danger"
-                                onClick={toggleChartLostWater}
-                            >
-                                Đóng
-                            </Button>
-                        </ModalFooter>
-                    </Modal>
-                </div>
             </Grid>
+
+            {/* ----------------------------------------------------------------
+                Modals — rendered outside the map container to avoid z-index
+                conflicts with Leaflet layers.
+            ---------------------------------------------------------------- */}
+
+            {/* Channel chart modal */}
+            <Modal isOpen={modal} toggle={closeModal} centered size="xl">
+                <ModalHeader toggle={closeModal}>
+                    Biểu đồ {currentSite?.Location}
+                </ModalHeader>
+                <ModalBody>
+                    {currentChannel && (
+                        <ChartModalECharts
+                            channelid={currentChannel.ChannelId}
+                            channelname={currentChannel.ChannelName}
+                            unit={currentChannel.Unit}
+                        />
+                    )}
+                </ModalBody>
+                <ModalFooter>
+                    <Button color="danger" onClick={closeModal}>
+                        Đóng
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            {/* Site chart modal */}
+            <Modal
+                isOpen={modalChartSite}
+                toggle={closeModalChartSite}
+                centered
+                size="xl"
+            >
+                <ModalHeader toggle={closeModalChartSite}>
+                    Biểu đồ {currentSite?.Location}
+                </ModalHeader>
+                <ModalBody>
+                    {currentSite && (
+                        <ChartSiteModalECharts
+                            siteid={currentSite.SiteId}
+                            loggerid={currentSite.LoggerId}
+                            location={currentSite.Location}
+                            pipeid={currentSite.PipeId}
+                            pipename={currentSite.PipeName}
+                            sizepipe={currentSite.SizePipe}
+                            lengthpipe={currentSite.LengthPipe}
+                        />
+                    )}
+                </ModalBody>
+                <ModalFooter>
+                    <Button color="danger" onClick={closeModalChartSite}>
+                        Đóng
+                    </Button>
+                </ModalFooter>
+            </Modal>
+
+            {/* Lost-water chart modal */}
+            <Modal
+                isOpen={modalChartLostWater}
+                toggle={closeModalChartLostWater}
+                centered
+                size="lg"
+            >
+                <ModalHeader toggle={closeModalChartLostWater}>
+                    Biểu đồ dữ liệu
+                </ModalHeader>
+                <ModalBody>
+                    <ChartLostWater lostWaterMode={lostWaterMode} />
+                </ModalBody>
+                <ModalFooter>
+                    <Button color="danger" onClick={closeModalChartLostWater}>
+                        Đóng
+                    </Button>
+                </ModalFooter>
+            </Modal>
         </motion.div>
     );
 };

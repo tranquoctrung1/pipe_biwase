@@ -1,3 +1,4 @@
+import React, { useMemo } from 'react';
 import Control from 'react-leaflet-custom-control';
 import {
     Grid,
@@ -7,75 +8,108 @@ import {
     Text,
     ActionIcon,
 } from '@mantine/core';
-
-import { IconArrowBadgeUpFilled } from '@tabler/icons-react';
-
-import DataTable from 'react-data-table-component';
-// @ts-ignore
+import { IconArrowBadgeUpFilled, IconX } from '@tabler/icons-react';
+import DataTable, { TableColumn } from 'react-data-table-component';
+// @ts-ignore — no types available for this package
 import DataTableExtensions from 'react-data-table-component-extensions';
 import 'react-data-table-component-extensions/dist/index.css';
-
 import { convertDateToTimeString } from '../utils/utils';
 
-import { IconX } from '@tabler/icons-react';
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-const TableAlarmMap = ({ openAlarm, data, onTableAlarmCloseClicked }: any) => {
-    const columns = [
-        {
-            name: 'STT',
-            selector: (row: any) => row.STT,
-            sortable: true,
-            cellExport: (row: any) => row.STT,
-        },
-        {
-            name: 'Mã vị trí',
-            selector: (row: any) => row.SiteId,
-            sortable: true,
-            cellExport: (row: any) => row.SiteId,
-        },
-        {
-            name: 'Vị trí',
-            selector: (row: any) => row.Location,
-            sortable: true,
-            cellExport: (row: any) => row.Location,
-        },
-        {
-            name: 'Tình Trạng',
-            selector: (row: any) => row.Status,
-            sortable: true,
-            cellExport: (row: any) => row.Status,
-        },
-        {
-            name: 'Cảnh báo',
-            selector: (row: any) => row.StatusError,
-            sortable: true,
-            cellExport: (row: any) =>
-                row.StatusError === 2
-                    ? 'Dữ liệu gửi trể'
-                    : row.Type === 3
-                    ? 'Không có kênh lưu lượng'
-                    : 'Lưu lượng tăng đột biến',
-            width: '150px',
-            format: (row: any) =>
-                row.StatusError === 2
-                    ? 'Dữ liệu gửi trể'
-                    : row.Type === 3
-                    ? 'Không có kênh lưu lượng'
-                    : 'Lưu lượng tăng đột biến',
-        },
-        {
-            name: 'Thời gian',
-            selector: (row: any) => row.TimeStamp,
-            sortable: true,
-            cellExport: (row: any) => row.TimeStamp,
-            format: () => convertDateToTimeString(new Date()),
-        },
-    ];
+interface AlarmRow {
+    STT: number;
+    SiteId: string;
+    Location: string;
+    Status: string;
+    StatusError: number;
+    Type: number;
+    TimeStamp: string;
+}
 
-    const tableData = {
-        columns,
-        data,
-    };
+interface TableAlarmMapProps {
+    openAlarm: boolean;
+    data: AlarmRow[];
+    onTableAlarmCloseClicked: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers — pure, defined outside the component
+// ---------------------------------------------------------------------------
+
+function getAlarmLabel(row: AlarmRow): string {
+    if (row.StatusError === 2) return 'Dữ liệu gửi trể';
+    if (row.Type === 3) return 'Không có kênh lưu lượng';
+    return 'Lưu lượng tăng đột biến';
+}
+
+const TABLE_TITLE = (
+    <Flex justify="center" align="center">
+        <Text fw={500}>Bảng cảnh báo</Text>
+    </Flex>
+);
+
+const SORT_ICON = <IconArrowBadgeUpFilled />;
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+const TableAlarmMap = ({
+    openAlarm,
+    data,
+    onTableAlarmCloseClicked,
+}: TableAlarmMapProps) => {
+    // Columns are stable as long as the component is mounted — no need to
+    // recreate them on every render.
+    const columns: TableColumn<AlarmRow>[] = useMemo(
+        () => [
+            {
+                name: 'STT',
+                selector: (row) => row.STT,
+                sortable: true,
+                cellExport: (row: AlarmRow) => row.STT,
+            },
+            {
+                name: 'Mã vị trí',
+                selector: (row) => row.SiteId,
+                sortable: true,
+                cellExport: (row: AlarmRow) => row.SiteId,
+            },
+            {
+                name: 'Vị trí',
+                selector: (row) => row.Location,
+                sortable: true,
+                cellExport: (row: AlarmRow) => row.Location,
+            },
+            {
+                name: 'Tình Trạng',
+                selector: (row) => row.Status,
+                sortable: true,
+                cellExport: (row: AlarmRow) => row.Status,
+            },
+            {
+                name: 'Cảnh báo',
+                selector: (row) => row.StatusError,
+                sortable: true,
+                width: '150px',
+                format: (row) => getAlarmLabel(row),
+                cellExport: (row: AlarmRow) => getAlarmLabel(row),
+            },
+            {
+                name: 'Thời gian',
+                selector: (row) => row.TimeStamp,
+                sortable: true,
+                format: () => convertDateToTimeString(new Date()),
+                cellExport: (row: AlarmRow) => row.TimeStamp,
+            },
+        ],
+        [],
+    );
+
+    const tableData = useMemo(() => ({ columns, data }), [columns, data]);
 
     return (
         <Control position="bottomleft">
@@ -102,33 +136,23 @@ const TableAlarmMap = ({ openAlarm, data, onTableAlarmCloseClicked }: any) => {
                                         variant="transparent"
                                         onClick={onTableAlarmCloseClicked}
                                     >
-                                        <IconX size="1.125rem"></IconX>
+                                        <IconX size="1.125rem" />
                                     </ActionIcon>
                                 </Flex>
                             </Grid.Col>
+
                             <Grid.Col span={{ base: 12 }}>
                                 <ScrollArea h="24rem">
                                     <DataTableExtensions {...tableData}>
-                                        <DataTable
+                                        <DataTable<AlarmRow>
                                             columns={columns}
                                             data={data}
-                                            title={
-                                                <Flex
-                                                    justify="center"
-                                                    align="center"
-                                                >
-                                                    <Text fw={500}>
-                                                        Bảng cảnh báo
-                                                    </Text>
-                                                </Flex>
-                                            }
+                                            title={TABLE_TITLE}
                                             paginationPerPage={3}
-                                            sortIcon={
-                                                <IconArrowBadgeUpFilled />
-                                            }
-                                            defaultSortAsc={true}
+                                            sortIcon={SORT_ICON}
+                                            defaultSortAsc
                                             pagination
-                                            highlightOnHover={true}
+                                            highlightOnHover
                                             dense={false}
                                         />
                                     </DataTableExtensions>
@@ -142,4 +166,4 @@ const TableAlarmMap = ({ openAlarm, data, onTableAlarmCloseClicked }: any) => {
     );
 };
 
-export default TableAlarmMap;
+export default React.memo(TableAlarmMap);

@@ -1,30 +1,36 @@
+import React from 'react';
 import { MapContainer } from 'react-leaflet';
-//import { useLayoutEffect } from 'react';
 
-const MapContainerComponent = ({ /*detectIOS,*/ children }: any) => {
-    // useLayoutEffect(() => {
-    //     if (detectIOS === true) {
-    //         document.getElementById('mapContainer')?.classList.add('ios');
-    //         document
-    //             .getElementById('mapContainer')
-    //             ?.attributes.removeNamedItem('tabIndex');
-    //     } else {
-    //         document.getElementById('mapContainer')?.classList.remove('ios');
-    //     }
-    // }, [detectIOS]);
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-    return (
-        <MapContainer
-            center={[10.597631, 106.535453]}
-            zoom={12}
-            scrollWheelZoom={true}
-            attributionControl={false}
-            zoomControl={false}
-            id="mapContainer"
-        >
-            {children}
-        </MapContainer>
-    );
-};
+interface MapContainerComponentProps {
+    children: React.ReactNode;
+}
 
-export default MapContainerComponent;
+// ---------------------------------------------------------------------------
+// Constants — defined outside the component, never recreated
+// ---------------------------------------------------------------------------
+
+const MAP_CENTER: [number, number] = [10.597631, 106.535453];
+const MAP_ZOOM = 12;
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+const MapContainerComponent = ({ children }: MapContainerComponentProps) => (
+    <MapContainer
+        center={MAP_CENTER}
+        zoom={MAP_ZOOM}
+        scrollWheelZoom
+        attributionControl={false}
+        zoomControl={false}
+        id="mapContainer"
+    >
+        {children}
+    </MapContainer>
+);
+
+export default React.memo(MapContainerComponent);

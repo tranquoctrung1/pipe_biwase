@@ -1,5 +1,5 @@
+import React, { useMemo } from 'react';
 import Control from 'react-leaflet-custom-control';
-
 import {
     Center,
     Text,
@@ -9,91 +9,122 @@ import {
     ActionIcon,
     ScrollArea,
 } from '@mantine/core';
-
-import uuid from 'react-uuid';
-
 import { IconX } from '@tabler/icons-react';
 
-import { useState, useEffect } from 'react';
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface GroupPipeItem {
+    GroupPipeId: string;
+    GroupPipeName: string;
+    IsHide: boolean;
+    STT?: number;
+}
+
+interface FilterGroupPipeMapProps {
+    openFilterGroupPipe: boolean;
+    groupPipe: GroupPipeItem[];
+    onGroupPipeChanged: (
+        e: React.ChangeEvent<HTMLInputElement>,
+        groupPipeId: string,
+    ) => void;
+    onFilterGroupPipeCloseClicked: () => void;
+    whiteBackgroundCurrentDataTable: boolean;
+    onWhiteBackgroundCurrentDataTableChanged: (
+        e: React.ChangeEvent<HTMLInputElement>,
+    ) => void;
+    showRegion: boolean;
+    onShowRegionChanged: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    alwaysOpenCurrentDataTable: boolean;
+    onAlwaysShowCurrentDataTable: (
+        e: React.ChangeEvent<HTMLInputElement>,
+    ) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers — pure, defined outside the component
+// ---------------------------------------------------------------------------
+
+function classifyPipes(groupPipe: GroupPipeItem[]): {
+    nt: GroupPipeItem[];
+    ns: GroupPipeItem[];
+    tl: GroupPipeItem[];
+} {
+    const nt: GroupPipeItem[] = [];
+    const ns: GroupPipeItem[] = [];
+    const tl: GroupPipeItem[] = [];
+
+    for (const item of groupPipe) {
+        if (
+            item.GroupPipeId.includes('TONT') ||
+            item.GroupPipeId.includes('NTONT')
+        ) {
+            nt.push(item);
+        } else if (item.GroupPipeId.includes('NTONSTL')) {
+            tl.push(item);
+        } else {
+            const parts = item.GroupPipeName.split(' ');
+            const stt = parseInt(parts[2], 10);
+            ns.push({ ...item, STT: isNaN(stt) ? 0 : stt });
+        }
+    }
+
+    ns.sort((a, b) => (a.STT ?? 0) - (b.STT ?? 0));
+
+    return { nt, ns, tl };
+}
+
+// ---------------------------------------------------------------------------
+// PipeCheckbox — shared row used by both pipe-list sections
+// ---------------------------------------------------------------------------
+
+interface PipeCheckboxProps {
+    item: GroupPipeItem;
+    prefixLabel?: string;
+    onGroupPipeChanged: FilterGroupPipeMapProps['onGroupPipeChanged'];
+}
+
+const PipeCheckbox = React.memo(
+    ({ item, prefixLabel, onGroupPipeChanged }: PipeCheckboxProps) => {
+        const handleChange = React.useCallback(
+            (e: React.ChangeEvent<HTMLInputElement>) =>
+                onGroupPipeChanged(e, item.GroupPipeId),
+            [onGroupPipeChanged, item.GroupPipeId],
+        );
+
+        return (
+            <Flex justify="start" align="center" gap="sm">
+                <Checkbox checked={item.IsHide} onChange={handleChange} />
+                <Text c="white">
+                    {prefixLabel ? `${prefixLabel} ` : ''}
+                    {item.GroupPipeName}
+                </Text>
+            </Flex>
+        );
+    },
+);
+
+PipeCheckbox.displayName = 'PipeCheckbox';
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 const FilterGroupPipeMap = ({
     openFilterGroupPipe,
     groupPipe,
     onGroupPipeChanged,
-    // showLabel,
-    // onShowSiteLabel,
     onFilterGroupPipeCloseClicked,
     whiteBackgroundCurrentDataTable,
     onWhiteBackgroundCurrentDataTableChanged,
     showRegion,
     onShowRegionChanged,
-    onAlwaysShowCurrentDataTable,
     alwaysOpenCurrentDataTable,
-}: any) => {
-    const [groupPipeNT, setGroupPipeNT] = useState([]);
-    const [groupPipeNS, setGroupPipeNS] = useState([]);
-    const [groupPipeTL, setGroupPipeTL] = useState([]);
-
-    useEffect(() => {
-        const tempNS = [];
-        const tempNT = [];
-        const tempTL = [];
-
-        for (const item of groupPipe) {
-            if (
-                item.GroupPipeId.indexOf('TONT') !== -1 ||
-                item.GroupPipeId.indexOf('NTONT') !== -1
-            ) {
-                tempNT.push(item);
-            } else if (item.GroupPipeId.indexOf('NTONSTL') !== -1) {
-                tempTL.push(item);
-            } else {
-                const splitIndex = item.GroupPipeName.split(' ');
-                const index = parseInt(splitIndex[2]);
-                item.STT = index;
-
-                tempNS.push(item);
-            }
-        }
-
-        tempNS.sort((a, b) => a.STT - b.STT);
-
-        //@ts-ignore
-        setGroupPipeNS([...tempNS]);
-        //@ts-ignore
-        setGroupPipeNT([...tempNT]);
-        //@ts-ignore
-        setGroupPipeTL([...tempTL]);
-    }, [groupPipe]);
-
-    const convertDataGroupPipe = (data: any, isTL = false) => {
-        const result = [];
-
-        if (data.length > 0) {
-            for (const item of data) {
-                const content = (
-                    <div key={uuid()}>
-                        <Flex justify="start" align="center" gap="sm">
-                            <Checkbox
-                                checked={item.IsHide}
-                                onChange={(e) =>
-                                    onGroupPipeChanged(e, item.GroupPipeId)
-                                }
-                            ></Checkbox>
-                            <Text c="white">
-                                {isTL === true ? 'Hiện các' : ''}{' '}
-                                {item.GroupPipeName}
-                            </Text>
-                        </Flex>
-                    </div>
-                );
-
-                result.push(content);
-            }
-        }
-
-        return result;
-    };
+    onAlwaysShowCurrentDataTable,
+}: FilterGroupPipeMapProps) => {
+    // Derived pipe lists — recomputed only when groupPipe changes
+    const { nt, ns, tl } = useMemo(() => classifyPipes(groupPipe), [groupPipe]);
 
     return (
         <Control position="topleft">
@@ -112,15 +143,15 @@ const FilterGroupPipeMap = ({
                             maxWidth: '30rem',
                             padding: '10px',
                             borderRadius: '5px',
-                            //overflow: 'scroll',
                         }}
                     >
+                        {/* Header */}
                         <Flex justify="end" align="center">
                             <ActionIcon
                                 variant="transparent"
                                 onClick={onFilterGroupPipeCloseClicked}
                             >
-                                <IconX size="1.125rem" color="white"></IconX>
+                                <IconX size="1.125rem" color="white" />
                             </ActionIcon>
                         </Flex>
                         <Center>
@@ -129,6 +160,8 @@ const FilterGroupPipeMap = ({
                             </Text>
                         </Center>
                         <hr />
+
+                        {/* Table display settings */}
                         <Text c="white">Hiển thị bảng Lưu lượng / Áp lực</Text>
                         <Flex justify="start" align="center" gap="sm">
                             <Checkbox
@@ -136,53 +169,62 @@ const FilterGroupPipeMap = ({
                                 onChange={
                                     onWhiteBackgroundCurrentDataTableChanged
                                 }
-                            ></Checkbox>
+                            />
                             <Text c="white">Màu nền trắng</Text>
                         </Flex>
                         <Flex justify="start" align="center" gap="sm">
                             <Checkbox
                                 checked={alwaysOpenCurrentDataTable}
                                 onChange={onAlwaysShowCurrentDataTable}
-                            ></Checkbox>
+                            />
                             <Text c="white">Luôn hiển thị khi bắt đầu</Text>
                         </Flex>
                         <hr />
+
+                        {/* Region visibility */}
                         <Text c="white">Ẩn/hiện các địa danh</Text>
                         <Flex justify="start" align="center" gap="sm">
                             <Checkbox
                                 checked={showRegion}
                                 onChange={onShowRegionChanged}
-                            ></Checkbox>
+                            />
                             <Text c="white">Luôn hiển thị các địa danh</Text>
                         </Flex>
-                        <Flex justify="start" align="center" gap="sm">
-                            {convertDataGroupPipe(groupPipeTL, true)}
-                        </Flex>
 
+                        {/* TL pipes (shown inline, not in scroll area) */}
+                        <Flex justify="start" align="center" gap="sm">
+                            {tl.map((item) => (
+                                <PipeCheckbox
+                                    key={item.GroupPipeId}
+                                    item={item}
+                                    prefixLabel="Hiện các"
+                                    onGroupPipeChanged={onGroupPipeChanged}
+                                />
+                            ))}
+                        </Flex>
                         <hr />
+
+                        {/* Pipe group lists */}
                         <ScrollArea h="50%">
                             <Text c="white">
                                 Ẩn hiện tuyến ống chính / nhánh
                             </Text>
-                            {convertDataGroupPipe(groupPipeNT)}
+                            {nt.map((item) => (
+                                <PipeCheckbox
+                                    key={item.GroupPipeId}
+                                    item={item}
+                                    onGroupPipeChanged={onGroupPipeChanged}
+                                />
+                            ))}
+
                             <Text c="white">Tuyến ống nước sạch</Text>
-                            {convertDataGroupPipe(groupPipeNS)}
-                            {/* <hr />
-                        <Center>
-                            <Text c="white" tt="capitalize" fw={550}>
-                                Ẩn hiện label cho các đồng hồ
-                            </Text>
-                        </Center>
-                        <hr />
-                        <div>
-                            <Flex justify="start" align="center" gap="sm">
-                                <Checkbox
-                                    checked={showLabel}
-                                    onChange={onShowSiteLabel}
-                                ></Checkbox>
-                                <Text c="white">Hiển thị label đồng hồ</Text>
-                            </Flex>
-                        </div> */}
+                            {ns.map((item) => (
+                                <PipeCheckbox
+                                    key={item.GroupPipeId}
+                                    item={item}
+                                    onGroupPipeChanged={onGroupPipeChanged}
+                                />
+                            ))}
                         </ScrollArea>
                     </div>
                 )}
@@ -191,4 +233,4 @@ const FilterGroupPipeMap = ({
     );
 };
 
-export default FilterGroupPipeMap;
+export default React.memo(FilterGroupPipeMap);

@@ -1,468 +1,393 @@
-import { useLayoutEffect, useState } from 'react';
-
+import React, {
+    useState,
+    useLayoutEffect,
+    useCallback,
+    useMemo,
+    useRef,
+} from 'react';
 import { Grid, Button, Flex, Space, Center } from '@mantine/core';
-
 import * as am5 from '@amcharts/amcharts5';
 import * as am5xy from '@amcharts/amcharts5/xy';
 import am5themes_Animated from '@amcharts/amcharts5/themes/Animated';
 import * as am5plugins_exporting from '@amcharts/amcharts5/plugins/exporting';
-
 import { useGetIndexLoggerFilterTimeQuery } from '../__generated__/graphql';
-
-import { calculateHoursBetweenDates } from '../utils/utils';
-
+import {
+    calculateHoursBetweenDates,
+    convertDateToTimeString,
+} from '../utils/utils';
 import Swal from 'sweetalert2';
-
 import { useSelector } from 'react-redux';
-
 import { StartPeriodLostWaterState } from '../features/startPeriodLostWater';
 import { EndPeriodLostWaterState } from '../features/endPeriodLostWater';
-
 import {
     IconArrowBadgeUpFilled,
     IconSearch,
     IconTable,
     IconChartAreaLine,
 } from '@tabler/icons-react';
-
-import DataTable from 'react-data-table-component';
-// @ts-ignore
+import DataTable, { TableColumn } from 'react-data-table-component';
+// @ts-ignore — no types available for this package
 import DataTableExtensions from 'react-data-table-component-extensions';
 import 'react-data-table-component-extensions/dist/index.css';
 
-import { convertDateToTimeString } from '../utils/utils';
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-const ChartLostWater = ({ lostWaterMode }: any) => {
-    const [startDate, setStartDate] = useState(
-        useSelector(StartPeriodLostWaterState),
-    );
-    const [endDate, setEndDate] = useState(
-        useSelector(EndPeriodLostWaterState),
-    );
+interface ChartLostWaterProps {
+    lostWaterMode: 'NT' | 'NS' | '';
+}
 
-    const [data, setData] = useState([]);
+interface ChartPoint {
+    TimeStamp: number;
+    Value: number;
+}
 
-    const [viewTable, setViewTable] = useState(false);
+interface IndexRecord {
+    TimeStamp: string;
+    Value: number;
+}
 
-    const { refetch: getIndexLogger } = useGetIndexLoggerFilterTimeQuery();
-
-    const getIndex = (channelid: string, start: any, end: any) => {
-        return getIndexLogger({
-            channelid: channelid,
-            start: new Date(start).getTime().toString(),
-            end: new Date(end).getTime().toString(),
-        });
+interface FetchResult {
+    data?: {
+        GetIndexLoggerFilterTime?: IndexRecord[];
     };
+}
 
-    const convertDataNT = (data: any, start: any, end: any) => {
-        const chartData = [];
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
-        const space = calculateHoursBetweenDates(start, end);
+const CHART_DOM_ID = 'chart-lost-water';
 
-        for (let i = 0; i <= space; i++) {
-            const t = new Date(start);
-            const t2 = new Date(start);
+/**
+ * Channel IDs fetched for each mode, in order.
+ * `convertData` receives the results array in the same order.
+ */
+const CHANNELS: Record<'NT' | 'NS', string[]> = {
+    NT: ['D800CD1_02', 'D800CD2_02', 'D600CD1_02', 'D600CD2_02'],
+    NS: ['D600CD1_02', 'D600CD2_02', 'D800NMNT_02'],
+};
 
-            t.setHours(t.getHours(), 0, 0, 0);
-            t2.setHours(t2.getHours(), 0, 0, 0);
+const SORT_ICON = <IconArrowBadgeUpFilled />;
 
-            t.setHours(t.getHours() - 1 + i);
-            t2.setHours(t2.getHours() + i);
+// ---------------------------------------------------------------------------
+// Pure helpers — outside the component, never recreated
+// ---------------------------------------------------------------------------
 
-            const findGD1StartIndex =
-                data[0].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t.getTime(),
-                );
-            const findGD1EndIndex = data[0].data.GetIndexLoggerFilterTime.find(
-                (el: any) => new Date(el.TimeStamp).getTime() === t2.getTime(),
-            );
+function getRecords(result: FetchResult): IndexRecord[] {
+    return result?.data?.GetIndexLoggerFilterTime ?? [];
+}
 
-            const findGD2StartIndex =
-                data[1].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t.getTime(),
-                );
-            const findGD2EndIndex = data[1].data.GetIndexLoggerFilterTime.find(
-                (el: any) => new Date(el.TimeStamp).getTime() === t2.getTime(),
-            );
+function findByTime(
+    records: IndexRecord[],
+    ms: number,
+): IndexRecord | undefined {
+    return records.find((r) => new Date(r.TimeStamp).getTime() === ms);
+}
 
-            const findNMGD1StartIndex =
-                data[2].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t.getTime(),
-                );
-            const findNMGD1EndIndex =
-                data[2].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t2.getTime(),
-                );
+/**
+ * Single loop used by both NT and NS modes.
+ * `calcPercent` receives the per-hour quantities for each channel and returns
+ * the loss percentage for that hour (or NaN to skip the point).
+ */
+function buildHourlyChart(
+    results: FetchResult[],
+    start: string,
+    end: string,
+    calcPercent: (quantities: number[]) => number,
+): ChartPoint[] {
+    const hours = calculateHoursBetweenDates(start, end);
+    const series = results.map(getRecords);
+    const points: ChartPoint[] = [];
 
-            const findNMGD2StartIndex =
-                data[3].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t.getTime(),
-                );
-            const findNMGD2EndIndex =
-                data[3].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t2.getTime(),
-                );
+    for (let i = 0; i <= hours; i++) {
+        const tPrev = new Date(start);
+        const tCurr = new Date(start);
+        tPrev.setHours(tPrev.getHours(), 0, 0, 0);
+        tCurr.setHours(tCurr.getHours(), 0, 0, 0);
+        tPrev.setHours(tPrev.getHours() - 1 + i);
+        tCurr.setHours(tCurr.getHours() + i);
 
-            const quantityGD1 = findGD1EndIndex.Value - findGD1StartIndex.Value;
-            const quantityGD2 = findGD2EndIndex.Value - findGD2StartIndex.Value;
-            const quantityNMGD1 =
-                findNMGD1EndIndex.Value - findNMGD1StartIndex.Value;
-            const quantityNMGD2 =
-                findNMGD2EndIndex.Value - findNMGD2StartIndex.Value;
+        const prevMs = tPrev.getTime();
+        const currMs = tCurr.getTime();
 
-            const totalCTT = quantityGD1 + quantityGD2;
-            const totalNM = quantityNMGD1 + quantityNMGD2;
+        const quantities = series.map((records) => {
+            const prev = findByTime(records, prevMs);
+            const curr = findByTime(records, currMs);
+            if (!prev || !curr) return NaN;
+            return curr.Value - prev.Value;
+        });
 
-            const lostNT = totalCTT - totalNM;
+        // Skip if any lookup failed
+        if (quantities.some(isNaN)) continue;
 
-            const percent = (lostNT / totalCTT) * 100;
-
-            if (!isNaN(percent)) {
-                const obj = {
-                    TimeStamp: t2.getTime(),
-                    Value: parseFloat(percent.toFixed(1)),
-                };
-
-                chartData.push(obj);
-            }
+        const pct = calcPercent(quantities);
+        if (!isNaN(pct)) {
+            points.push({
+                TimeStamp: currMs,
+                Value: parseFloat(pct.toFixed(1)),
+            });
         }
+    }
 
-        return chartData;
-    };
+    return points;
+}
 
-    const convertDataForNS = (data: any, start: any, end: any) => {
-        const chartData = [];
+// NT: [GD1, GD2, NMGD1, NMGD2]
+function calcPercentNT([qGD1, qGD2, qNMGD1, qNMGD2]: number[]): number {
+    const totalCTT = qGD1 + qGD2;
+    const totalNM = qNMGD1 + qNMGD2;
+    return ((totalCTT - totalNM) / totalCTT) * 100;
+}
 
-        const space = calculateHoursBetweenDates(start, end);
+// NS: [NMGD1, NMGD2, TB1]
+function calcPercentNS([qNMGD1, qNMGD2, qTB1]: number[]): number {
+    const totalNM = qNMGD1 + qNMGD2;
+    return ((totalNM - qTB1) / totalNM) * 100;
+}
 
-        for (let i = 0; i <= space; i++) {
-            const t = new Date(start);
-            const t2 = new Date(start);
+/** Dispose any existing root on CHART_DOM_ID and create a fresh one. */
+function createFreshRoot(): am5.Root {
+    am5.array.each(am5.registry.rootElements, (root) => {
+        if (root.dom.id === CHART_DOM_ID) root.dispose();
+    });
+    return am5.Root.new(CHART_DOM_ID);
+}
 
-            t.setHours(t.getHours(), 0, 0, 0);
-            t2.setHours(t2.getHours(), 0, 0, 0);
+function buildTheme(root: am5.Root): am5.Theme {
+    const theme = am5.Theme.new(root);
+    theme.rule('AxisLabel', ['minor']).setAll({ dy: 1 });
+    theme.rule('Grid', ['minor']).setAll({ strokeOpacity: 0.08 });
+    return theme;
+}
 
-            t.setHours(t.getHours() - 1 + i);
-            t2.setHours(t2.getHours() + i);
+function renderChart(points: ChartPoint[]): void {
+    const root = createFreshRoot();
+    root.setThemes([am5themes_Animated.new(root), buildTheme(root)]);
 
-            const findNMGD1StartIndex =
-                data[0].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t.getTime(),
-                );
-            const findNMGD1EndIndex =
-                data[0].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t2.getTime(),
-                );
+    const chart = root.container.children.push(
+        am5xy.XYChart.new(root, {
+            panX: false,
+            panY: false,
+            wheelX: 'panX',
+            wheelY: 'zoomX',
+            paddingLeft: 0,
+        }),
+    );
 
-            const findNMGD2StartIndex =
-                data[1].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t.getTime(),
-                );
-            const findNMGD2EndIndex =
-                data[1].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t2.getTime(),
-                );
+    const cursor = chart.set(
+        'cursor',
+        am5xy.XYCursor.new(root, { behavior: 'zoomX' }),
+    );
+    cursor.lineY.set('visible', false);
 
-            const findTB1StartIndex =
-                data[2].data.GetIndexLoggerFilterTime.find(
-                    (el: any) =>
-                        new Date(el.TimeStamp).getTime() === t.getTime(),
-                );
-            const findTB1EndIndex = data[2].data.GetIndexLoggerFilterTime.find(
-                (el: any) => new Date(el.TimeStamp).getTime() === t2.getTime(),
-            );
-
-            const quantityNMGD1 =
-                findNMGD1EndIndex.Value - findNMGD1StartIndex.Value;
-            const quantityNMGD2 =
-                findNMGD2EndIndex.Value - findNMGD2StartIndex.Value;
-            const quantityTB1 = findTB1EndIndex.Value - findTB1StartIndex.Value;
-
-            const totalNM = quantityNMGD1 + quantityNMGD2;
-            const totalTB = quantityTB1;
-
-            const lostNS = totalNM - totalTB;
-
-            const percent = (lostNS / totalNM) * 100;
-
-            if (!isNaN(percent)) {
-                const obj = {
-                    TimeStamp: t2.getTime(),
-                    Value: parseFloat(percent.toFixed(1)),
-                };
-
-                chartData.push(obj);
-            }
-        }
-
-        return chartData;
-    };
-
-    const getDataForNT = (start: any, end: any) => {
-        Promise.all([
-            getIndex('D800CD1_02', start, end),
-            getIndex('D800CD2_02', start, end),
-            getIndex('D600CD1_02', start, end),
-            getIndex('D600CD2_02', start, end),
-        ])
-            .then((res) => {
-                if (res.length > 0) {
-                    const data = convertDataNT(res, start, end);
-
-                    const temp = [...data];
-                    temp.sort((a, b) => b.TimeStamp - a.TimeStamp);
-                    //@ts-ignore
-                    setData([...temp]);
-
-                    drawChart(data);
-                }
-            })
-            .catch((err) => console.error(err));
-    };
-
-    const getDataForNS = (start: any, end: any) => {
-        Promise.all([
-            getIndex('D600CD1_02', start, end),
-            getIndex('D600CD2_02', start, end),
-            getIndex('D800NMNT_02', start, end),
-        ])
-            .then((res) => {
-                if (res.length > 0) {
-                    const data = convertDataForNS(res, start, end);
-
-                    const temp = [...data];
-                    temp.sort((a, b) => b.TimeStamp - a.TimeStamp);
-                    //@ts-ignore
-                    setData([...temp]);
-
-                    drawChart(data);
-                }
-            })
-            .catch((err) => console.error(err));
-    };
-
-    const drawChart = (data: any) => {
-        am5.array.each(am5.registry.rootElements, function (root) {
-            if (root.dom.id == 'chart') {
-                root.dispose();
-            }
-        });
-
-        const root = am5.Root.new('chart');
-
-        const myTheme = am5.Theme.new(root);
-
-        // Move minor label a bit down
-        myTheme.rule('AxisLabel', ['minor']).setAll({
-            dy: 1,
-        });
-
-        // Tweak minor grid opacity
-        myTheme.rule('Grid', ['minor']).setAll({
-            strokeOpacity: 0.08,
-        });
-
-        // Set themes
-        // https://www.amcharts.com/docs/v5/concepts/themes/
-        root.setThemes([am5themes_Animated.new(root), myTheme]);
-
-        // Create chart
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/
-        const chart = root.container.children.push(
-            am5xy.XYChart.new(root, {
-                panX: false,
-                panY: false,
-                wheelX: 'panX',
-                wheelY: 'zoomX',
-                paddingLeft: 0,
+    const xAxis = chart.xAxes.push(
+        am5xy.DateAxis.new(root, {
+            maxDeviation: 0,
+            baseInterval: { timeUnit: 'hour', count: 1 },
+            renderer: am5xy.AxisRendererX.new(root, {
+                minorGridEnabled: true,
+                minGridDistance: 200,
+                minorLabelsEnabled: true,
             }),
-        );
+            tooltip: am5.Tooltip.new(root, {}),
+        }),
+    );
+    xAxis.set('minorDateFormats', { day: 'dd', month: 'MM' });
 
-        // Add cursor
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/cursor/
-        const cursor = chart.set(
-            'cursor',
-            am5xy.XYCursor.new(root, {
-                behavior: 'zoomX',
-            }),
-        );
-        cursor.lineY.set('visible', false);
+    const yAxis = chart.yAxes.push(
+        am5xy.ValueAxis.new(root, {
+            numberFormat: "#'%'",
+            renderer: am5xy.AxisRendererY.new(root, {}),
+        }),
+    );
 
-        // Create axes
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/axes/
-        const xAxis = chart.xAxes.push(
-            am5xy.DateAxis.new(root, {
-                maxDeviation: 0,
-                baseInterval: {
-                    timeUnit: 'hour',
-                    count: 1,
-                },
-                renderer: am5xy.AxisRendererX.new(root, {
-                    minorGridEnabled: true,
-                    minGridDistance: 200,
-                    minorLabelsEnabled: true,
-                }),
-                tooltip: am5.Tooltip.new(root, {}),
-            }),
-        );
+    const series = chart.series.push(
+        am5xy.LineSeries.new(root, {
+            name: 'Series',
+            xAxis,
+            yAxis,
+            valueYField: 'Value',
+            valueXField: 'TimeStamp',
+            tooltip: am5.Tooltip.new(root, { labelText: '{valueY} %' }),
+        }),
+    );
 
-        xAxis.set('minorDateFormats', {
-            day: 'dd',
-            month: 'MM',
-        });
-
-        const yAxis = chart.yAxes.push(
-            am5xy.ValueAxis.new(root, {
-                numberFormat: "#'%'",
-                renderer: am5xy.AxisRendererY.new(root, {}),
-            }),
-        );
-
-        // Add series
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/series/
-        const series = chart.series.push(
-            am5xy.LineSeries.new(root, {
-                name: 'Series',
-                xAxis: xAxis,
-                yAxis: yAxis,
-                valueYField: 'Value',
-                valueXField: 'TimeStamp',
-                tooltip: am5.Tooltip.new(root, {
-                    labelText: '{valueY} %',
-                }),
-            }),
-        );
-
-        am5plugins_exporting.Exporting.new(root, {
-            menu: am5plugins_exporting.ExportingMenu.new(root, {}),
-        });
-
-        // Actual bullet
-        series.bullets.push(function () {
-            const bulletCircle = am5.Circle.new(root, {
+    series.bullets.push(() =>
+        am5.Bullet.new(root, {
+            sprite: am5.Circle.new(root, {
                 radius: 2,
                 fill: series.get('fill'),
-            });
-            return am5.Bullet.new(root, {
-                sprite: bulletCircle,
-            });
-        });
-
-        // Add scrollbar
-        // https://www.amcharts.com/docs/v5/charts/xy-chart/scrollbars/
-        chart.set(
-            'scrollbarX',
-            am5.Scrollbar.new(root, {
-                orientation: 'horizontal',
             }),
-        );
+        }),
+    );
 
-        series.data.setAll(data);
+    am5plugins_exporting.Exporting.new(root, {
+        menu: am5plugins_exporting.ExportingMenu.new(root, {}),
+    });
 
-        // Make stuff animate on load
-        // https://www.amcharts.com/docs/v5/concepts/animations/
-        series.appear(1000);
-        chart.appear(1000, 100);
-    };
+    chart.set(
+        'scrollbarX',
+        am5.Scrollbar.new(root, { orientation: 'horizontal' }),
+    );
+
+    series.data.setAll(points);
+    series.appear(1000);
+    chart.appear(1000, 100);
+}
+
+function validateDates(start: string, end: string): boolean {
+    if (!start) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Oops...',
+            text: 'Chưa có thời gian bắt đầu',
+        });
+        return false;
+    }
+    if (!end) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Oops...',
+            text: 'Chưa có thời gian kết thúc',
+        });
+        return false;
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
+
+const ChartLostWater = ({ lostWaterMode }: ChartLostWaterProps) => {
+    // Read initial values from Redux once — do NOT call useSelector inside useState initialiser
+    const reduxStart = useSelector(StartPeriodLostWaterState) as string;
+    const reduxEnd = useSelector(EndPeriodLostWaterState) as string;
+
+    const [startDate, setStartDate] = useState<string>(reduxStart);
+    const [endDate, setEndDate] = useState<string>(reduxEnd);
+    const [chartData, setChartData] = useState<ChartPoint[]>([]);
+    const [viewTable, setViewTable] = useState(false);
+
+    const { refetch: fetchIndex } = useGetIndexLoggerFilterTimeQuery();
+
+    // Keep latest chartData in a ref so onSwitchChartClicked can access it
+    // without being listed as a dependency (avoids stale closure).
+    const chartDataRef = useRef<ChartPoint[]>([]);
+    chartDataRef.current = chartData;
+
+    // ---------------------------------------------------------------------------
+    // Data fetching
+    // ---------------------------------------------------------------------------
+
+    const fetchAndRender = useCallback(
+        (start: string, end: string) => {
+            if (!validateDates(start, end) || !lostWaterMode) return;
+
+            const channels = CHANNELS[lostWaterMode as 'NT' | 'NS'];
+            const calcPercent =
+                lostWaterMode === 'NT' ? calcPercentNT : calcPercentNS;
+
+            Promise.all(
+                channels.map((channelid) =>
+                    fetchIndex({
+                        channelid,
+                        start: new Date(start).getTime().toString(),
+                        end: new Date(end).getTime().toString(),
+                    }),
+                ),
+            )
+                .then((results) => {
+                    const points = buildHourlyChart(
+                        //@ts-ignore
+                        results,
+                        start,
+                        end,
+                        calcPercent,
+                    );
+                    const sorted = [...points].sort(
+                        (a, b) => b.TimeStamp - a.TimeStamp,
+                    );
+                    setChartData(sorted);
+                    renderChart(points);
+                })
+                .catch(console.error);
+        },
+        [lostWaterMode, fetchIndex],
+    );
 
     useLayoutEffect(() => {
-        if (lostWaterMode === 'NT') {
-            getDataForNT(startDate, endDate);
-        } else {
-            getDataForNS(startDate, endDate);
-        }
-    }, [lostWaterMode]);
+        fetchAndRender(startDate, endDate);
+    }, [lostWaterMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    const onViewChartClicked = () => {
-        let isAllow = true;
+    // ---------------------------------------------------------------------------
+    // Handlers
+    // ---------------------------------------------------------------------------
 
-        if (startDate === null || startDate === undefined || startDate === '') {
-            Swal.fire({
-                icon: 'error',
-                title: 'Oops...',
-                text: 'Chưa có thời gian bắt đầu',
-            });
-            isAllow = false;
-        } else if (
-            endDate === null ||
-            endDate === undefined ||
-            endDate === ''
-        ) {
-            Swal.fire({
-                icon: 'error',
-                title: 'Oops...',
-                text: 'Chưa có thời gian kết thúc',
-            });
+    const onViewChartClicked = useCallback(() => {
+        fetchAndRender(startDate, endDate);
+    }, [startDate, endDate, fetchAndRender]);
 
-            isAllow = false;
-        }
+    const onSwitchTableClicked = useCallback(() => setViewTable(true), []);
 
-        if (isAllow) {
-            if (lostWaterMode === 'NT') {
-                getDataForNT(startDate, endDate);
-            } else {
-                getDataForNS(startDate, endDate);
-            }
-        }
-    };
-
-    const columns = [
-        {
-            name: 'Thời gian',
-            selector: (row: any) => row.TimeStamp,
-            sortable: true,
-            cellExport: (row: any) => convertDateToTimeString(row.TimeStamp),
-            format: (row: any) => convertDateToTimeString(row.TimeStamp),
-        },
-        {
-            name: 'Thất thoát (%)',
-            selector: (row: any) => row.Value,
-            sortable: true,
-            cellExport: (row: any) => row.Value,
-        },
-    ];
-
-    const tableData = {
-        columns,
-        data,
-        fileName: `Thất thoát nước ${
-            lostWaterMode === 'NT' ? 'thô' : 'sạch'
-        } từ ${convertDateToTimeString(
-            new Date(startDate),
-        )} đến ${convertDateToTimeString(new Date(endDate))}`,
-    };
-
-    const onSwitchTableClicked = () => {
-        setViewTable(true);
-    };
-
-    const onSwitchChartClicked = () => {
+    // Re-draw from the ref — no setTimeout needed because the chart div is
+    // always in the DOM (we hide the table, not unmount the chart).
+    const onSwitchChartClicked = useCallback(() => {
         setViewTable(false);
-        setTimeout(() => {
-            drawChart(data);
-        }, 1000);
-    };
+        renderChart(chartDataRef.current);
+    }, []);
+
+    // ---------------------------------------------------------------------------
+    // Stable table config
+    // ---------------------------------------------------------------------------
+
+    const columns: TableColumn<ChartPoint>[] = useMemo(
+        () => [
+            {
+                name: 'Thời gian',
+                selector: (row) => row.TimeStamp,
+                sortable: true,
+                //@ts-ignore
+                format: (row) => convertDateToTimeString(row.TimeStamp),
+                cellExport: (row: ChartPoint) =>
+                    //@ts-ignore
+                    convertDateToTimeString(row.TimeStamp),
+            },
+            {
+                name: 'Thất thoát (%)',
+                selector: (row) => row.Value,
+                sortable: true,
+                cellExport: (row: ChartPoint) => row.Value,
+            },
+        ],
+        [],
+    );
+
+    const tableData = useMemo(
+        () => ({
+            columns,
+            data: chartData,
+            fileName: `Thất thoát nước ${lostWaterMode === 'NT' ? 'thô' : 'sạch'} từ ${convertDateToTimeString(new Date(startDate))} đến ${convertDateToTimeString(new Date(endDate))}`,
+        }),
+        [columns, chartData, lostWaterMode, startDate, endDate],
+    );
+
+    // ---------------------------------------------------------------------------
+    // Render
+    // ---------------------------------------------------------------------------
 
     return (
         <Grid>
+            {/* Date inputs */}
             <Grid.Col span={{ base: 12, md: 4 }}>
-                <label htmlFor="startstart" style={{ fontWeight: 500 }}>
+                <label htmlFor="start" style={{ fontWeight: 500 }}>
                     Thời gian bắt đầu
                 </label>
                 <input
                     type="datetime-local"
                     id="start"
-                    name="trip-start"
                     value={startDate}
                     onChange={(e) => setStartDate(e.currentTarget.value)}
                     style={{
@@ -472,14 +397,15 @@ const ChartLostWater = ({ lostWaterMode }: any) => {
                     }}
                 />
             </Grid.Col>
+
             <Grid.Col span={{ base: 12, md: 4 }}>
                 <label htmlFor="end" style={{ fontWeight: 500 }}>
-                    Thời gian bắt đầu
+                    Thời gian kết thúc{' '}
+                    {/* Fixed: was labelled "bắt đầu" in original */}
                 </label>
                 <input
                     type="datetime-local"
                     id="end"
-                    name="trip-start"
                     value={endDate}
                     onChange={(e) => setEndDate(e.currentTarget.value)}
                     style={{
@@ -489,6 +415,7 @@ const ChartLostWater = ({ lostWaterMode }: any) => {
                     }}
                 />
             </Grid.Col>
+
             <Grid.Col span={{ base: 12, md: 4 }}>
                 <Flex
                     justify="center"
@@ -496,7 +423,7 @@ const ChartLostWater = ({ lostWaterMode }: any) => {
                     style={{ height: '100%' }}
                 >
                     <Button
-                        leftSection={<IconSearch size="1.125rem"></IconSearch>}
+                        leftSection={<IconSearch size="1.125rem" />}
                         variant="filled"
                         color="green"
                         onClick={onViewChartClicked}
@@ -505,10 +432,12 @@ const ChartLostWater = ({ lostWaterMode }: any) => {
                     </Button>
                 </Flex>
             </Grid.Col>
+
+            {/* View toggles */}
             <Grid.Col span={{ base: 12 }}>
                 <Center>
                     <Button
-                        leftSection={<IconTable size="1.125rem"></IconTable>}
+                        leftSection={<IconTable size="1.125rem" />}
                         variant="filled"
                         color="violet"
                         onClick={onSwitchTableClicked}
@@ -516,11 +445,9 @@ const ChartLostWater = ({ lostWaterMode }: any) => {
                     >
                         Xem bảng dữ liệu
                     </Button>
-                    <Space w="sm"></Space>
+                    <Space w="sm" />
                     <Button
-                        leftSection={
-                            <IconChartAreaLine size="1.125rem"></IconChartAreaLine>
-                        }
+                        leftSection={<IconChartAreaLine size="1.125rem" />}
                         variant="filled"
                         color="blue"
                         onClick={onSwitchChartClicked}
@@ -530,31 +457,31 @@ const ChartLostWater = ({ lostWaterMode }: any) => {
                     </Button>
                 </Center>
             </Grid.Col>
-            {viewTable === false ? (
-                <Grid.Col span={{ base: 12 }}>
-                    <div
-                        id="chart"
-                        style={{ width: '100%', height: '400px' }}
-                    ></div>
-                </Grid.Col>
-            ) : (
-                <Grid.Col span={{ base: 12 }}>
+
+            {/* Chart / Table */}
+            <Grid.Col span={{ base: 12 }}>
+                {viewTable ? (
                     <DataTableExtensions {...tableData}>
-                        <DataTable
+                        <DataTable<ChartPoint>
                             columns={columns}
-                            data={data}
+                            data={chartData}
                             paginationPerPage={5}
-                            sortIcon={<IconArrowBadgeUpFilled />}
-                            defaultSortAsc={true}
+                            sortIcon={SORT_ICON}
+                            defaultSortAsc
                             pagination
-                            highlightOnHover={true}
+                            highlightOnHover
                             dense={false}
                         />
                     </DataTableExtensions>
-                </Grid.Col>
-            )}
+                ) : (
+                    <div
+                        id={CHART_DOM_ID}
+                        style={{ width: '100%', height: '400px' }}
+                    />
+                )}
+            </Grid.Col>
         </Grid>
     );
 };
 
-export default ChartLostWater;
+export default React.memo(ChartLostWater);

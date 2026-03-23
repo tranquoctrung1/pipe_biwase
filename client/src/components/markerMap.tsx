@@ -1,10 +1,9 @@
+import React, { useCallback, useMemo } from 'react';
 import { Text, ActionIcon, Grid, Textarea, Flex, Button } from '@mantine/core';
-
 import { Marker, Popup, Tooltip } from 'react-leaflet';
-
 import { Icon, Point } from 'leaflet';
+import { IconChartAreaLine } from '@tabler/icons-react';
 
-//import MarkerGreen from '../assets/marker_green.png';
 import MarkerRed from '../assets/marker_red.png';
 import MarkerYellow from '../assets/marker_yellow.png';
 import MarkerOrange from '../assets/marker_orange.png';
@@ -16,317 +15,290 @@ import Play from '../assets/play.png';
 import PlayStop from '../assets/playstop.png';
 import MarkerPurple from '../assets/marker_purple.png';
 
-import { IconChartAreaLine } from '@tabler/icons-react';
-
 import {
     convertDateToStringNotDate,
     convertDateToStringNotTime,
     convertDateToString,
 } from '../utils/utils';
 
-import uuid from 'react-uuid';
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-const MarkerMap = ({
-    sites,
-    onpenChartModalClick,
-    openModalChartSiteClick,
-    zoom,
-}: any) => {
-    // const iconGreen = new Icon({
-    //     iconUrl: MarkerGreen,
-    //     iconRetinaUrl: MarkerGreen,
-    //     popupAnchor: [0, -3],
-    //     iconSize: new Point(20, 20),
-    //     className: '',
-    // });
+interface Channel {
+    _id: string;
+    ChannelId: string;
+    ChannelName: string;
+    Unit: string;
+    LastValue: number | null;
+    LastIndex: number | null;
+    TimeStamp: string | null;
+    ForwardFlow: boolean;
+    ReverseFlow: boolean;
+    Pressure1: boolean;
+    Pressure2: boolean;
+}
 
-    const iconDHC = new Icon({
-        iconUrl: MarkerDHC,
-        iconRetinaUrl: MarkerDHC,
+interface Site {
+    _id: string;
+    SiteId: string;
+    LoggerId: string;
+    Location: string;
+    Latitude: number | null;
+    Longitude: number | null;
+    StatusError: number | null;
+    Type: number | null;
+    IsManualMeter: boolean | undefined;
+    IsShowLabel: boolean;
+    Status: string;
+    Available: string;
+    PipeId: string;
+    PipeName: string;
+    SizePipe: number;
+    LengthPipe: number;
+    Note: string;
+    Channels: Channel[];
+}
+
+interface MarkerMapProps {
+    sites: Site[];
+    onpenChartModalClick: (channel: Channel) => void;
+    openModalChartSiteClick: (site: Site) => void;
+    zoom: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Icons — module-level constants, created once for the lifetime of the app
+// ---------------------------------------------------------------------------
+
+function makeIcon(url: string, size = 20): Icon {
+    return new Icon({
+        iconUrl: url,
+        iconRetinaUrl: url,
         popupAnchor: [0, -3],
-        iconSize: new Point(20, 20),
+        iconSize: new Point(size, size),
         className: '',
     });
+}
 
-    const iconAqua = new Icon({
-        iconUrl: MarkerAqua,
-        iconRetinaUrl: MarkerAqua,
-        popupAnchor: [0, -3],
-        iconSize: new Point(20, 20),
-        className: '',
-    });
+const ICONS = {
+    aqua: makeIcon(MarkerAqua),
+    dhc: makeIcon(MarkerDHC),
+    yellow: makeIcon(MarkerYellow),
+    red: makeIcon(MarkerRed),
+    orange: makeIcon(MarkerOrange),
+    purple: makeIcon(MarkerPurple),
+    valve: makeIcon(Valve),
+    waterCompany: makeIcon(WaterCompany),
+    play: makeIcon(Play, 30),
+    stop: makeIcon(PlayStop, 30),
+} as const;
 
-    const iconYellow = new Icon({
-        iconUrl: MarkerYellow,
-        iconRetinaUrl: MarkerYellow,
-        popupAnchor: [0, -3],
-        iconSize: new Point(20, 20),
-        className: '',
-    });
+// ---------------------------------------------------------------------------
+// Pure helpers — outside the component, never recreated
+// ---------------------------------------------------------------------------
 
-    const iconRed = new Icon({
-        iconUrl: MarkerRed,
-        iconRetinaUrl: MarkerRed,
-        popupAnchor: [0, -3],
-        iconSize: new Point(20, 20),
-        className: '',
-    });
+function identifyIcon(
+    status: number | null,
+    type: number | null,
+    isManualMeter: boolean | undefined,
+): Icon {
+    if (isManualMeter) return ICONS.dhc;
+    if (type === 1) return ICONS.waterCompany;
+    if (type === 4) return ICONS.valve;
 
-    const iconOrange = new Icon({
-        iconUrl: MarkerOrange,
-        iconRetinaUrl: MarkerOrange,
-        popupAnchor: [0, -3],
-        iconSize: new Point(20, 20),
-        className: '',
-    });
+    switch (status) {
+        case 2:
+            return ICONS.yellow;
+        case 3:
+            return ICONS.red;
+        case 5:
+            return ICONS.orange;
+        case 6:
+            return ICONS.play;
+        case 7:
+            return ICONS.stop;
+        case 8:
+            return ICONS.purple;
+        default:
+            return ICONS.aqua;
+    }
+}
 
-    const iconValve = new Icon({
-        iconUrl: Valve,
-        iconRetinaUrl: Valve,
-        popupAnchor: [0, -3],
-        iconSize: new Point(20, 20),
-        className: '',
-    });
+function tooltipDirection(site: Site): 'left' | 'right' | 'bottom' {
+    if (site.Type === 1) return 'left';
+    if (site.SiteId === 'D800 CD2 CTT') return 'left';
+    if (site.SiteId === 'D800 CD1 CTT') return 'right';
+    return 'bottom';
+}
 
-    const iconWaterCompany = new Icon({
-        iconUrl: WaterCompany,
-        iconRetinaUrl: WaterCompany,
-        popupAnchor: [0, -3],
-        iconSize: new Point(20, 20),
-        className: '',
-    });
+function tooltipBackground(site: Site): string {
+    if (site.Channels[0]?.LastValue === null) return 'gray';
+    switch (site.StatusError) {
+        case 2:
+            return 'yellow';
+        case 3:
+            return 'red';
+        case 5:
+            return 'orange';
+        case 8:
+            return 'violet';
+        default:
+            return 'blue';
+    }
+}
 
-    const iconPlay = new Icon({
-        iconUrl: Play,
-        iconRetinaUrl: Play,
-        popupAnchor: [0, -3],
-        iconSize: new Point(30, 30),
-        className: '',
-    });
+function channelColor(ch: Channel): string {
+    if (ch.Pressure1 || ch.Pressure2) return 'red';
+    if (ch.ForwardFlow || ch.ReverseFlow) return 'blue';
+    return 'green';
+}
 
-    const iconStop = new Icon({
-        iconUrl: PlayStop,
-        iconRetinaUrl: PlayStop,
-        popupAnchor: [0, -3],
-        iconSize: new Point(30, 30),
-        className: '',
-    });
+function firstTimestamp(channels: Channel[]): string {
+    for (const ch of channels) {
+        if (ch.TimeStamp != null) return ch.TimeStamp;
+    }
+    return '';
+}
 
-    const iconPurple = new Icon({
-        iconUrl: MarkerPurple,
-        iconRetinaUrl: MarkerPurple,
-        popupAnchor: [0, -3],
-        iconSize: new Point(20, 20),
-        className: '',
-    });
+function calculateIndex(channels: Channel[]): number {
+    return channels.reduce((acc, ch) => {
+        if (ch.LastIndex == null) return acc;
+        if (ch.ForwardFlow) return acc + ch.LastIndex;
+        if (ch.ReverseFlow) return acc - ch.LastIndex;
+        return acc;
+    }, 0);
+}
 
-    const indentifyIcon = (
-        status: number | null,
-        type: number | null,
-        isManualMeter: boolean | undefined,
-    ) => {
-        let defaultIcon = iconAqua;
-        if (isManualMeter === true) {
-            defaultIcon = iconDHC;
-        } else if (type === 1) {
-            defaultIcon = iconWaterCompany;
-        } else if (type === 4) {
-            defaultIcon = iconValve;
-        } else if (status != null) {
-            if (status === 2) {
-                defaultIcon = iconYellow;
-            } else if (status === 3) {
-                defaultIcon = iconRed;
-            } else if (status === 5) {
-                defaultIcon = iconOrange;
-            } else if (status === 6) {
-                defaultIcon = iconPlay;
-            } else if (status === 7) {
-                defaultIcon = iconStop;
-            } else if (status === 8) {
-                defaultIcon = iconPurple;
-            }
-        }
+// ---------------------------------------------------------------------------
+// Sub-components — each is memoised to prevent unnecessary re-renders
+// ---------------------------------------------------------------------------
 
-        return defaultIcon;
-    };
+interface InfoRowProps {
+    label: string;
+    value: React.ReactNode;
+    valueColor?: string;
+}
 
-    const createListChannelInPopupContent = (data: any) => {
-        const content = [];
+const InfoRow = React.memo(({ label, value, valueColor }: InfoRowProps) => (
+    <Flex justify="start" align="center" style={{ marginBottom: '10px' }}>
+        <b style={{ marginRight: '5px' }}>{label}</b>
+        <span style={valueColor ? { color: valueColor } : undefined}>
+            {value}
+        </span>
+    </Flex>
+));
+InfoRow.displayName = 'InfoRow';
 
-        for (const channel of data) {
-            const element = (
-                <Flex
-                    style={{
-                        width: '100%',
-                        background: '#82ccdd6b',
-                        padding: '0 10px 0 5px',
-                        borderRadius: '5px',
-                        marginBottom: '5px',
-                    }}
-                >
-                    <Grid.Col span={{ base: 3 }} key={channel._id}>
-                        <Text size="xs" c="black" style={{ margin: '5px' }}>
-                            {channel.ChannelName}
-                        </Text>
-                    </Grid.Col>
-                    <Grid.Col span={{ base: 3 }}>
-                        <Text size="xs" c="blue" style={{ margin: '5px' }}>
-                            {channel.LastValue == null
-                                ? 'NO DATA'
-                                : channel.LastValue.toFixed(2) +
-                                  ' ' +
-                                  channel.Unit}
-                        </Text>
-                    </Grid.Col>
-                    <Grid.Col span={{ base: 5 }}>
-                        <Text size="xs" c="black" style={{ margin: '5px' }}>
-                            {channel.TimeStamp == null
-                                ? 'NO TIME'
-                                : convertDateToString(channel.TimeStamp)}
-                        </Text>
-                    </Grid.Col>
-                    <Grid.Col span={{ base: 1 }} style={{ margin: 'auto' }}>
-                        <ActionIcon
-                            variant="filled"
-                            color="blue"
-                            onClick={() => onpenChartModalClick(channel)}
-                        >
-                            <IconChartAreaLine size="1.125rem"></IconChartAreaLine>
-                        </ActionIcon>
-                    </Grid.Col>
-                </Flex>
-            );
+// ---------------------------------------------------------------------------
 
-            content.push(element);
-        }
+interface ChannelRowProps {
+    channel: Channel;
+    onChartClick: (channel: Channel) => void;
+}
 
-        return content;
-    };
+const ChannelRow = React.memo(({ channel, onChartClick }: ChannelRowProps) => {
+    const handleClick = useCallback(
+        () => onChartClick(channel),
+        [channel, onChartClick],
+    );
 
-    const createPopupContent = (site: any) => {
-        let content = '';
+    return (
+        <Flex
+            style={{
+                width: '100%',
+                background: '#82ccdd6b',
+                padding: '0 10px 0 5px',
+                borderRadius: '5px',
+                marginBottom: '5px',
+            }}
+        >
+            <Grid.Col span={{ base: 3 }}>
+                <Text size="xs" c="black" style={{ margin: '5px' }}>
+                    {channel.ChannelName}
+                </Text>
+            </Grid.Col>
+            <Grid.Col span={{ base: 3 }}>
+                <Text size="xs" c="blue" style={{ margin: '5px' }}>
+                    {channel.LastValue == null
+                        ? 'NO DATA'
+                        : `${channel.LastValue.toFixed(2)} ${channel.Unit}`}
+                </Text>
+            </Grid.Col>
+            <Grid.Col span={{ base: 5 }}>
+                <Text size="xs" c="black" style={{ margin: '5px' }}>
+                    {channel.TimeStamp == null
+                        ? 'NO TIME'
+                        : convertDateToString(channel.TimeStamp)}
+                </Text>
+            </Grid.Col>
+            <Grid.Col span={{ base: 1 }} style={{ margin: 'auto' }}>
+                <ActionIcon variant="filled" color="blue" onClick={handleClick}>
+                    <IconChartAreaLine size="1.125rem" />
+                </ActionIcon>
+            </Grid.Col>
+        </Flex>
+    );
+});
+ChannelRow.displayName = 'ChannelRow';
 
-        let index = 0;
+// ---------------------------------------------------------------------------
 
-        if (site.Channels.length > 0) {
-            for (const channel of site.Channels) {
-                if (channel.ForwardFlow == true) {
-                    if (
-                        channel.LastIndex != null &&
-                        channel.LastIndex != undefined
-                    ) {
-                        index += channel.LastIndex;
-                    }
-                } else if (channel.ReverseFlow == true) {
-                    if (
-                        channel.LastIndex != null &&
-                        channel.LastIndex != undefined
-                    ) {
-                        index -= channel.LastIndex;
-                    }
-                }
-            }
-        }
-        //@ts-ignore
-        content = (
+interface SitePopupProps {
+    site: Site;
+    onChartClick: (channel: Channel) => void;
+    onSiteChartClick: (site: Site) => void;
+}
+
+const SitePopup = React.memo(
+    ({ site, onChartClick, onSiteChartClick }: SitePopupProps) => {
+        const handleSiteChart = useCallback(
+            () => onSiteChartClick(site),
+            [site, onSiteChartClick],
+        );
+
+        const index = useMemo(
+            () => calculateIndex(site.Channels),
+            [site.Channels],
+        );
+
+        return (
             <>
+                <InfoRow label="Mã tuyến ống:" value={site.PipeId} />
+                <InfoRow label="Tên tuyến ống:" value={site.PipeName} />
+                <InfoRow label="Kích thước tuyến ống:" value={site.SizePipe} />
+                <InfoRow label="Độ dài tuyến ống:" value={site.LengthPipe} />
+                <InfoRow label="Vị trí:" value={site.Location} />
+                <InfoRow label="LoggerId:" value={site.LoggerId} />
+                <InfoRow label="Mã vị trí:" value={site.SiteId} />
+                <InfoRow label="Tình trạng:" value={site.Status} />
+                <InfoRow label="Trạng thái:" value={site.Available} />
+                <InfoRow
+                    label="Index:"
+                    value={index.toFixed(2)}
+                    valueColor="blue"
+                />
+
                 <Flex
                     justify="start"
                     align="center"
                     style={{ marginBottom: '10px' }}
                 >
-                    <b style={{ marginRight: '5px' }}>Mã tuyến ống: </b>
-                    <span>{site.PipeId}</span>
-                </Flex>
-                <Flex
-                    justify="start"
-                    align="center"
-                    style={{ marginBottom: '10px' }}
-                >
-                    <b style={{ marginRight: '5px' }}>Tên tuyến ống: </b>
-                    <span>{site.PipeName}</span>
-                </Flex>
-                <Flex
-                    justify="start"
-                    align="center"
-                    style={{ marginBottom: '10px' }}
-                >
-                    <b style={{ marginRight: '5px' }}>Kích thước tuyến ống: </b>
-                    <span>{site.SizePipe}</span>
-                </Flex>
-                <Flex
-                    justify="start"
-                    align="center"
-                    style={{ marginBottom: '10px' }}
-                >
-                    <b style={{ marginRight: '5px' }}>Độ dài tuyến ống: </b>
-                    <span>{site.LengthPipe}</span>
-                </Flex>
-                <Flex
-                    justify="start"
-                    align="center"
-                    style={{ marginBottom: '10px' }}
-                >
-                    <b style={{ marginRight: '5px' }}>Vị trí: </b>
-                    <span>{site.Location}</span>
-                </Flex>
-                <Flex
-                    justify="start"
-                    align="center"
-                    style={{ marginBottom: '10px' }}
-                >
-                    <b style={{ marginRight: '5px' }}>LoggerId: </b>
-                    <span>{site.LoggerId}</span>
-                </Flex>
-                <Flex
-                    justify="start"
-                    align="center"
-                    style={{ marginBottom: '10px' }}
-                >
-                    <b style={{ marginRight: '5px' }}>Mã vị trí: </b>
-                    <span>{site.SiteId}</span>
-                </Flex>
-                <Flex
-                    justify="start"
-                    align="center"
-                    style={{ marginBottom: '10px' }}
-                >
-                    <b style={{ marginRight: '5px' }}>Tình trạng: </b>
-                    <span>{site.Status}</span>
-                </Flex>
-                <Flex
-                    justify="start"
-                    align="center"
-                    style={{ marginBottom: '10px' }}
-                >
-                    <b style={{ marginRight: '5px' }}>Trạng thái: </b>
-                    <span>{site.Available}</span>
-                </Flex>
-                <Flex
-                    justify="start"
-                    align="center"
-                    style={{ marginBottom: '10px' }}
-                >
-                    <b style={{ marginRight: '5px' }}>Index:</b>
-                    <span style={{ color: 'blue' }}>{index.toFixed(2)}</span>
-                </Flex>
-                <Flex
-                    justify="start"
-                    align="center"
-                    style={{ marginBottom: '10px' }}
-                >
-                    <Button
-                        color="blue"
-                        size="xs"
-                        onClick={() => openModalChartSiteClick(site)}
-                    >
+                    <Button color="blue" size="xs" onClick={handleSiteChart}>
                         Xem biểu đồ kênh của điểm
                     </Button>
                 </Flex>
+
                 <Grid style={{ marginTop: '5px' }}>
-                    {createListChannelInPopupContent(site.Channels)}
+                    {site.Channels.map((ch) => (
+                        <ChannelRow
+                            key={ch._id}
+                            channel={ch}
+                            onChartClick={onChartClick}
+                        />
+                    ))}
                 </Grid>
+
                 <Grid style={{ marginTop: '5px' }}>
                     <Grid.Col
                         span={{ base: 12 }}
@@ -349,191 +321,146 @@ const MarkerMap = ({
                 </Grid>
             </>
         );
+    },
+);
+SitePopup.displayName = 'SitePopup';
 
-        return content;
-    };
+// ---------------------------------------------------------------------------
 
-    const createListChannelContentInTooltipContent = (data: any) => {
-        const content = [];
+interface SiteTooltipProps {
+    site: Site;
+}
 
-        for (const channel of data) {
-            let colorChannel = 'green';
+const SiteTooltip = React.memo(({ site }: SiteTooltipProps) => {
+    const bg = useMemo(() => tooltipBackground(site), [site]);
+    const timestamp = useMemo(
+        () => firstTimestamp(site.Channels),
+        [site.Channels],
+    );
 
-            if (channel.Pressure1 === true || channel.Pressure2 === true) {
-                colorChannel = 'red';
-            } else if (
-                channel.ForwardFlow === true ||
-                channel.ReverseFlow === true
-            ) {
-                colorChannel = 'blue';
-            } else {
-                colorChannel = 'green';
-            }
+    return (
+        <div style={{ minWidth: '10rem' }}>
+            <Flex justify="center" align="center" style={{ background: bg }}>
+                <Text size="xs" c="white">
+                    {site.Location}
+                </Text>
+            </Flex>
 
-            const element = (
-                <>
-                    <Grid key={channel._id}>
-                        <Grid.Col span={{ base: 6 }}>
-                            <Text size="xs" c="black">
-                                {channel.ChannelName}
+            <Flex justify="space-between" align="center">
+                <Text size="xs" c="black" fw={500}>
+                    {timestamp
+                        ? convertDateToStringNotTime(new Date(timestamp))
+                        : ''}
+                </Text>
+                <Text size="xs" c="black" fw={500}>
+                    {timestamp
+                        ? convertDateToStringNotDate(new Date(timestamp))
+                        : ''}
+                </Text>
+            </Flex>
+
+            {site.Channels.map((ch) => (
+                <Grid key={ch._id}>
+                    <Grid.Col span={{ base: 6 }}>
+                        <Text size="xs" c="black">
+                            {ch.ChannelName}
+                        </Text>
+                    </Grid.Col>
+                    <Grid.Col span={{ base: 6 }}>
+                        <Flex justify="end" align="center">
+                            <Text size="xs" c={channelColor(ch)}>
+                                {ch.LastValue == null
+                                    ? 'NO DATA'
+                                    : ch.LastValue.toFixed(2)}
                             </Text>
-                        </Grid.Col>
-                        <Grid.Col span={{ base: 6 }}>
-                            <Flex justify="end" align="center">
-                                <Text size="xs" c={colorChannel}>
-                                    {channel.LastValue == null
-                                        ? 'NO DATA'
-                                        : channel.LastValue.toFixed(2)}
-                                </Text>
-                            </Flex>
-                        </Grid.Col>
-                    </Grid>
-                </>
-            );
+                        </Flex>
+                    </Grid.Col>
+                </Grid>
+            ))}
+        </div>
+    );
+});
+SiteTooltip.displayName = 'SiteTooltip';
 
-            content.push(element);
-        }
+// ---------------------------------------------------------------------------
+// SiteMarker — one marker + its popup + tooltip
+// ---------------------------------------------------------------------------
 
-        return content;
-    };
+interface SiteMarkerProps {
+    site: Site;
+    zoom: number | null;
+    onChartClick: (channel: Channel) => void;
+    onSiteChartClick: (site: Site) => void;
+}
 
-    const createCommonTimeStampDateInTooltip = (data: any) => {
-        let content = '';
-
-        for (const channel of data) {
-            if (channel.TimeStamp != null && channel.TimeStamp != undefined) {
-                content = convertDateToStringNotTime(
-                    new Date(channel.TimeStamp),
-                );
-                break;
-            }
-        }
-
-        return content;
-    };
-
-    const createCommonTimeStampTimeInTooltip = (data: any) => {
-        let content = '';
-
-        for (const channel of data) {
-            if (channel.TimeStamp != null && channel.TimeStamp != undefined) {
-                content = convertDateToStringNotDate(
-                    new Date(channel.TimeStamp),
-                );
-                break;
-            }
-        }
-
-        return content;
-    };
-
-    const createTooltipContent = (site: any) => {
-        let backgroudColor = 'blue';
-
-        if (site.StatusError === 2) {
-            backgroudColor = 'yellow';
-        } else if (site.StatusError === 3) {
-            backgroudColor = 'red';
-        } else if (site.StatusError === 5) {
-            backgroudColor = 'orange';
-        } else if (site.StatusError === 8) {
-            backgroudColor = 'violet';
-        }
-
-        for (const channel of site.Channels) {
-            if (channel.LastValue === null) {
-                backgroudColor = 'gray';
-            }
-            break;
-        }
-
-        const content = (
-            <div key={uuid()} style={{ minWidth: '10rem' }}>
-                <Flex
-                    justify="center"
-                    align="center"
-                    key={uuid()}
-                    style={{ background: backgroudColor }}
-                >
-                    <Text size="xs" c="white">
-                        {site.Location}
-                    </Text>
-                </Flex>
-                <Flex justify="space-between" align="center" key={uuid()}>
-                    <Text size="xs" c="black" fw={500}>
-                        {createCommonTimeStampDateInTooltip(site.Channels)}
-                    </Text>
-                    <Text size="xs" c="black" fw={500}>
-                        {createCommonTimeStampTimeInTooltip(site.Channels)}
-                    </Text>
-                </Flex>
-                {createListChannelContentInTooltipContent(site.Channels)}
-            </div>
+const SiteMarker = React.memo(
+    ({ site, zoom, onChartClick, onSiteChartClick }: SiteMarkerProps) => {
+        const icon = useMemo(
+            () => identifyIcon(site.StatusError, site.Type, site.IsManualMeter),
+            [site.StatusError, site.Type, site.IsManualMeter],
         );
+        const direction = useMemo(() => tooltipDirection(site), [site]);
+        const opacity =
+            site.IsShowLabel || (zoom != null && zoom >= 14) ? 1 : 0;
 
-        return content;
-    };
+        return (
+            <Marker
+                key={site._id}
+                position={[site.Latitude!, site.Longitude!]}
+                icon={icon}
+                riseOnHover
+                riseOffset={10}
+            >
+                <Popup minWidth={400}>
+                    <SitePopup
+                        site={site}
+                        onChartClick={onChartClick}
+                        onSiteChartClick={onSiteChartClick}
+                    />
+                </Popup>
+                <Tooltip
+                    direction={direction}
+                    permanent
+                    offset={[0, 5]}
+                    opacity={opacity}
+                    interactive
+                >
+                    <SiteTooltip site={site} />
+                </Tooltip>
+            </Marker>
+        );
+    },
+);
+SiteMarker.displayName = 'SiteMarker';
 
-    const convertMarker = (data: any) => {
-        const markers = [];
-        if (data != undefined && data != null) {
-            if (data.length > 0) {
-                for (const site of data) {
-                    if (
-                        site.Latitude != null &&
-                        site.Latitude != undefined &&
-                        site.Longitude != null &&
-                        site.Longitude != undefined &&
-                        site.Type !== 3
-                    ) {
-                        const marker = (
-                            <Marker
-                                key={site._id}
-                                position={[site.Latitude, site.Longitude]}
-                                icon={indentifyIcon(
-                                    site.StatusError,
-                                    site.Type,
-                                    site.IsManualMeter,
-                                )}
-                                riseOnHover
-                                riseOffset={10}
-                            >
-                                <Popup minWidth={400} key={uuid()}>
-                                    {createPopupContent(site)}
-                                </Popup>
-                                <Tooltip
-                                    direction={
-                                        site.Type === 1
-                                            ? 'left'
-                                            : site.SiteId === 'D800 CD2 CTT'
-                                            ? 'left'
-                                            : site.SiteId === 'D800 CD1 CTT'
-                                            ? 'right'
-                                            : 'bottom'
-                                    }
-                                    permanent={true}
-                                    offset={[0, 5]}
-                                    opacity={
-                                        site.IsShowLabel || zoom >= 14 ? 1 : 0
-                                    }
-                                    key={uuid()}
-                                    interactive={true}
-                                >
-                                    {createTooltipContent(site)}
-                                </Tooltip>
-                            </Marker>
-                        );
+// ---------------------------------------------------------------------------
+// MarkerMap
+// ---------------------------------------------------------------------------
 
-                        markers.push(marker);
-                    }
-                }
-            }
-        }
+const MarkerMap = ({
+    sites,
+    onpenChartModalClick,
+    openModalChartSiteClick,
+    zoom,
+}: MarkerMapProps) => (
+    <>
+        {sites
+            .filter(
+                (site) =>
+                    site.Latitude != null &&
+                    site.Longitude != null &&
+                    site.Type !== 3,
+            )
+            .map((site) => (
+                <SiteMarker
+                    key={site._id}
+                    site={site}
+                    zoom={zoom}
+                    onChartClick={onpenChartModalClick}
+                    onSiteChartClick={openModalChartSiteClick}
+                />
+            ))}
+    </>
+);
 
-        return markers;
-    };
-
-    return convertMarker(sites);
-};
-
-export default MarkerMap;
+export default React.memo(MarkerMap);

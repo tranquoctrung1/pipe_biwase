@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-
+import React, { useState, useEffect, useCallback } from 'react';
 import {
     Table,
     Transition,
@@ -9,243 +8,213 @@ import {
     ActionIcon,
     ScrollArea,
 } from '@mantine/core';
-
 import { IconX } from '@tabler/icons-react';
-
 import Control from 'react-leaflet-custom-control';
-import { convertDateToString } from '../utils/utils';
-
 import { useGetChannelByLoggerIdQuery } from '../__generated__/graphql';
-
 import {
+    convertDateToString,
     roundFlowCurrentDataTableMap,
     roundPressureCurrentDataTableMap,
 } from '../utils/utils';
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface TableCurrentDataMapProps {
+    openTableCurrentData: boolean;
+    onTabelCurrentDataCloseClicked: () => void;
+    whiteBackgroundCurrentDataTable: boolean;
+}
+
+interface MeterReading {
+    flow: number | null;
+    pressure: number | null;
+    timeStamp: string | null;
+    /** Accumulated forward-flow index — only used for some meters */
+    index: number | null;
+}
+
+type MeterKey =
+    | 'GD1'
+    | 'GD2'
+    | 'GD3'
+    | 'NMGD1'
+    | 'NMGD2'
+    | 'NMGD3'
+    | 'TB1'
+    | 'TB2'
+    | 'TBTA';
+
+type MeterReadings = Record<MeterKey, MeterReading>;
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+const EMPTY_READING: MeterReading = {
+    flow: null,
+    pressure: null,
+    timeStamp: null,
+    index: null,
+};
+
+const INITIAL_STATE: MeterReadings = {
+    GD1: { ...EMPTY_READING },
+    GD2: { ...EMPTY_READING },
+    GD3: { ...EMPTY_READING },
+    NMGD1: { ...EMPTY_READING },
+    NMGD2: { ...EMPTY_READING },
+    NMGD3: { ...EMPTY_READING },
+    TB1: { ...EMPTY_READING },
+    TB2: { ...EMPTY_READING },
+    TBTA: { ...EMPTY_READING },
+};
+
+/**
+ * Maps logger IDs to the meter keys they feed.
+ * `indexKey` — which meter's accumulated index this logger contributes to.
+ */
+interface LoggerConfig {
+    loggerId: string;
+    /** The primary meter this logger maps to */
+    meterKey: MeterKey;
+    /** The meter whose index accumulator this logger adds to (may differ from meterKey) */
+    indexKey: MeterKey;
+}
+
+const LOGGER_CONFIGS: LoggerConfig[] = [
+    { loggerId: 'D800CD1', meterKey: 'GD1', indexKey: 'GD1' },
+    { loggerId: 'D800CD2', meterKey: 'GD2', indexKey: 'GD1' }, // GD2 flow accumulates into GD1 index
+    { loggerId: 'D600CD1', meterKey: 'NMGD1', indexKey: 'NMGD1' },
+    { loggerId: 'D600CD2', meterKey: 'NMGD2', indexKey: 'NMGD1' }, // NMGD2 flow accumulates into NMGD1 index
+    { loggerId: 'D800NMNT', meterKey: 'TB1', indexKey: 'TB1' },
+    { loggerId: 'TBTAML', meterKey: 'TBTA', indexKey: 'TBTA' },
+];
+
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
 const TableCurrentDataMap = ({
     openTableCurrentData,
     onTabelCurrentDataCloseClicked,
     whiteBackgroundCurrentDataTable,
-}: any) => {
-    const [flowGD1, setFlowGD1] = useState(null);
-    const [indexGD1, setIndexGD1] = useState(null);
-    const [pressureGD1, setPressureGD1] = useState(null);
-    const [timeStampGD1, setTimeStampGD1] = useState(null);
+}: TableCurrentDataMapProps) => {
+    const [readings, setReadings] = useState<MeterReadings>(INITIAL_STATE);
 
-    const [flowGD2, setFlowGD2] = useState(null);
-    const [pressureGD2, setPressureGD2] = useState(null);
-    const [timeStampGD2, setTimeStampGD2] = useState(null);
+    const { refetch: fetchChannelByLoggerId } = useGetChannelByLoggerIdQuery();
 
-    const [flowGD3] = useState(null);
-    const [pressureGD3] = useState(null);
-    const [timeStampGD3] = useState(null);
+    // ---------------------------------------------------------------------------
+    // Data fetching — one loop replaces 6 identical blocks
+    // ---------------------------------------------------------------------------
 
-    const [flowNMGD1, setFlowNMGD1] = useState(null);
-    const [indexNMGD1, setIndexNMGD1] = useState(null);
-    const [pressureNMGD1, setPressureNMGD1] = useState(null);
-    const [timeStampNMGD1, setTimeStampNMGD1] = useState(null);
-
-    const [flowNMGD2, setFlowNMGD2] = useState(null);
-    const [pressureNMGD2, setPressureNMGD2] = useState(null);
-    const [timeStampNMGD2, setTimeStampNMGD2] = useState(null);
-
-    const [flowNMGD3] = useState(null);
-    const [pressureNMGD3] = useState(null);
-    const [timeStampNMGD3] = useState(null);
-
-    const [flowTB1, setFlowTB1] = useState(null);
-    const [indexTB1, setIndexTB1] = useState(null);
-    const [pressureTB1, setPressureTB1] = useState(null);
-    const [timeStampTB1, setTimeStampTB1] = useState(null);
-
-    const [flowTB2] = useState(null);
-    const [pressureTB2] = useState(null);
-    const [timeStampTB2] = useState(null);
-
-    const [flowTBTA, setFlowTBTA] = useState(null);
-    const [pressureTBTA, setPressureTBTA] = useState(null);
-    const [indexTBTA, setIndexTBTA] = useState(null);
-    const [timeStampTBTA, setTimeStampTBTA] = useState(null);
-
-    const { refetch: getChannelByLoggerId } = useGetChannelByLoggerIdQuery();
-
-    const getDataChannel = (loggerId: string) => {
-        return getChannelByLoggerId({ loggerid: loggerId });
-    };
-
-    const getDataChannelForSetStata = () => {
-        setIndexGD1(null);
-        setIndexNMGD1(null);
-        setIndexTB1(null);
-        setIndexTBTA(null);
-
-        getDataChannel('D800CD1').then((res) => {
-            if (res?.data?.GetChannelByLoggerId) {
-                const findPressure = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.Pressure1 === true || el?.Pressure2 === true,
-                );
-                if (findPressure !== undefined) {
-                    //@ts-ignore
-                    setPressureGD1(findPressure.LastValue);
-                    setTimeStampGD1(findPressure?.TimeStamp);
-                }
-                const findFlow = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.ForwardFlow === true,
-                );
-                if (findFlow !== undefined) {
-                    //@ts-ignore
-                    setFlowGD1(findFlow.LastValue);
-                    //@ts-ignore
-                    setIndexGD1((current) => current + findFlow?.LastValue);
-
-                    if (timeStampGD1 === null) {
-                        setTimeStampGD1(findFlow?.TimeStamp);
-                    }
-                }
-            }
+    const fetchAll = useCallback(() => {
+        // Reset all index accumulators before re-fetching
+        setReadings((prev) => {
+            const next = { ...prev };
+            (['GD1', 'NMGD1', 'TB1', 'TBTA'] as MeterKey[]).forEach((key) => {
+                next[key] = { ...next[key], index: null };
+            });
+            return next;
         });
 
-        getDataChannel('D800CD2').then((res) => {
-            if (res?.data?.GetChannelByLoggerId) {
-                const findPressure = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.Pressure1 === true || el?.Pressure2 === true,
-                );
-                if (findPressure !== undefined) {
-                    //@ts-ignore
-                    setPressureGD2(findPressure.LastValue);
-                    setTimeStampGD2(findPressure?.TimeStamp);
-                }
-                const findFlow = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.ForwardFlow === true,
-                );
-                if (findFlow !== undefined) {
-                    //@ts-ignore
-                    setFlowGD2(findFlow.LastValue);
-                    //@ts-ignore
-                    setIndexGD1((current) => current + findFlow?.LastValue);
+        LOGGER_CONFIGS.forEach(({ loggerId, meterKey, indexKey }) => {
+            fetchChannelByLoggerId({ loggerid: loggerId })
+                .then(({ data }) => {
+                    const channels = data?.GetChannelByLoggerId;
+                    if (!channels) return;
 
-                    if (timeStampGD2 === null) {
-                        setTimeStampGD2(findFlow?.TimeStamp);
-                    }
-                }
-            }
+                    setReadings((prev) => {
+                        const next = { ...prev };
+                        const meter = { ...next[meterKey] };
+                        const idxMeter = { ...next[indexKey] };
+
+                        const pressure = channels.find(
+                            (ch) =>
+                                ch?.Pressure1 === true ||
+                                ch?.Pressure2 === true,
+                        );
+                        if (pressure) {
+                            meter.pressure = pressure.LastValue as number;
+                            meter.timeStamp = pressure.TimeStamp as string;
+                        }
+
+                        const flow = channels.find(
+                            (ch) => ch?.ForwardFlow === true,
+                        );
+                        if (flow) {
+                            meter.flow = flow.LastValue as number;
+                            if (!meter.timeStamp)
+                                meter.timeStamp = flow.TimeStamp as string;
+
+                            // Accumulate flow value into the designated index meter
+                            idxMeter.index =
+                                (idxMeter.index ?? 0) +
+                                (flow.LastValue as number);
+                            next[indexKey] = idxMeter;
+                        }
+
+                        next[meterKey] = meter;
+                        return next;
+                    });
+                })
+                .catch(console.error);
         });
-
-        getDataChannel('D600CD1').then((res) => {
-            if (res?.data?.GetChannelByLoggerId) {
-                const findPressure = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.Pressure1 === true || el?.Pressure2 === true,
-                );
-                if (findPressure !== undefined) {
-                    //@ts-ignore
-                    setPressureNMGD1(findPressure.LastValue);
-                    setTimeStampNMGD1(findPressure?.TimeStamp);
-                }
-                const findFlow = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.ForwardFlow === true,
-                );
-                if (findFlow !== undefined) {
-                    //@ts-ignore
-                    setFlowNMGD1(findFlow.LastValue);
-                    //@ts-ignore
-                    setIndexNMGD1((current) => current + findFlow?.LastValue);
-
-                    if (timeStampNMGD1 === null) {
-                        setTimeStampNMGD1(findFlow?.TimeStamp);
-                    }
-                }
-            }
-        });
-
-        getDataChannel('D600CD2').then((res) => {
-            if (res?.data?.GetChannelByLoggerId) {
-                const findPressure = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.Pressure1 === true || el?.Pressure2 === true,
-                );
-                if (findPressure !== undefined) {
-                    //@ts-ignore
-                    setPressureNMGD2(findPressure.LastValue);
-                    setTimeStampNMGD2(findPressure?.TimeStamp);
-                }
-                const findFlow = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.ForwardFlow === true,
-                );
-                if (findFlow !== undefined) {
-                    //@ts-ignore
-                    setFlowNMGD2(findFlow.LastValue);
-                    //@ts-ignore
-                    setIndexNMGD1((current) => current + findFlow?.LastValue);
-
-                    if (timeStampNMGD2 === null) {
-                        setTimeStampNMGD2(findFlow?.TimeStamp);
-                    }
-                }
-            }
-        });
-
-        getDataChannel('D800NMNT').then((res) => {
-            if (res?.data?.GetChannelByLoggerId) {
-                const findPressure = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.Pressure1 === true || el?.Pressure2 === true,
-                );
-                if (findPressure !== undefined) {
-                    //@ts-ignore
-                    setPressureTB1(findPressure.LastValue);
-                    setTimeStampTB1(findPressure?.TimeStamp);
-                }
-                const findFlow = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.ForwardFlow === true,
-                );
-                if (findFlow !== undefined) {
-                    //@ts-ignore
-                    setFlowTB1(findFlow.LastValue);
-                    //@ts-ignore
-                    setIndexTB1((current) => current + findFlow?.LastValue);
-
-                    if (timeStampNMGD2 === null) {
-                        setTimeStampTB1(findFlow?.TimeStamp);
-                    }
-                }
-            }
-        });
-
-        getDataChannel('TBTAML').then((res) => {
-            if (res?.data?.GetChannelByLoggerId) {
-                const findPressure = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.Pressure1 === true || el?.Pressure2 === true,
-                );
-                if (findPressure !== undefined) {
-                    //@ts-ignore
-                    setPressureTBTA(findPressure.LastValue);
-                    setTimeStampTBTA(findPressure?.TimeStamp);
-                }
-                const findFlow = res.data.GetChannelByLoggerId.find(
-                    (el) => el?.ForwardFlow === true,
-                );
-                if (findFlow !== undefined) {
-                    //@ts-ignore
-                    setFlowTBTA(findFlow.LastValue);
-                    //@ts-ignore
-                    setIndexTBTA((current) => current + findFlow?.LastValue);
-
-                    if (timeStampTBTA === null) {
-                        setTimeStampTBTA(findFlow?.TimeStamp);
-                    }
-                }
-            }
-        });
-    };
+    }, [fetchChannelByLoggerId]);
 
     useEffect(() => {
-        getDataChannelForSetStata();
-    }, []);
+        fetchAll();
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
-        const interval = setInterval(() => {
-            getDataChannelForSetStata();
-        }, 1000 * 60 * 5);
+        const interval = setInterval(fetchAll, REFRESH_INTERVAL_MS);
         return () => clearInterval(interval);
-    }, []);
+    }, [fetchAll]);
+
+    // ---------------------------------------------------------------------------
+    // Render helpers — eliminates repeated <Text> boilerplate in table cells
+    // ---------------------------------------------------------------------------
+
+    const flowTd = (key: MeterKey) => (
+        <Table.Td>
+            <Text size="xs" c="blue" fw="bold">
+                {roundFlowCurrentDataTableMap(readings[key].flow)}
+            </Text>
+        </Table.Td>
+    );
+
+    const indexTd = (key: MeterKey) => (
+        <Table.Td>
+            <Text size="xs" c="blue" fw="bold">
+                {roundFlowCurrentDataTableMap(readings[key].index)}
+            </Text>
+        </Table.Td>
+    );
+
+    const pressureTd = (key: MeterKey) => (
+        <Table.Td>
+            <Text size="xs" c="red" fw="bold">
+                {roundPressureCurrentDataTableMap(readings[key].pressure)}
+            </Text>
+        </Table.Td>
+    );
+
+    const timeTd = (key: MeterKey) => (
+        <Table.Td>
+            <Text size="xs" c="black">
+                {convertDateToString(readings[key].timeStamp)}
+            </Text>
+        </Table.Td>
+    );
+
+    const emptyTd = () => <Table.Td />;
+
+    // ---------------------------------------------------------------------------
+    // Render
+    // ---------------------------------------------------------------------------
 
     return (
         <Control position="topleft">
@@ -270,15 +239,17 @@ const TableCurrentDataMap = ({
                                 variant="transparent"
                                 onClick={onTabelCurrentDataCloseClicked}
                             >
-                                <IconX size="1.125rem" color="white"></IconX>
+                                <IconX size="1.125rem" color="white" />
                             </ActionIcon>
                         </Flex>
+
                         <ScrollArea>
                             <Table
                                 withTableBorder
                                 withColumnBorders
                                 className="tableCurrent"
                             >
+                                {/* ── Header ── */}
                                 <Table.Thead style={{ background: 'aqua' }}>
                                     <Table.Tr>
                                         <Table.Th rowSpan={3}>
@@ -343,6 +314,8 @@ const TableCurrentDataMap = ({
                                         </Table.Th>
                                     </Table.Tr>
                                 </Table.Thead>
+
+                                {/* ── Body ── */}
                                 <Table.Tbody
                                     style={{
                                         background:
@@ -351,6 +324,7 @@ const TableCurrentDataMap = ({
                                                 : 'transparent',
                                     }}
                                 >
+                                    {/* Công trình thu */}
                                     <Table.Tr>
                                         <Table.Td rowSpan={3}>
                                             <Text fw="bold" c="red" size="xs">
@@ -358,7 +332,7 @@ const TableCurrentDataMap = ({
                                             </Text>
                                         </Table.Td>
                                         <Table.Td rowSpan={3}>
-                                            <Text fw="bold" size="xs" c="black">
+                                            <Text fw="bold" c="black" size="xs">
                                                 Nước thô
                                             </Text>
                                         </Table.Td>
@@ -367,34 +341,10 @@ const TableCurrentDataMap = ({
                                                 GD1
                                             </Text>
                                         </Table.Td>
-                                        <Table.Td>
-                                            <Text c="blue" fw="bold" size="xs">
-                                                {roundFlowCurrentDataTableMap(
-                                                    flowGD1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text c="blue" fw="bold" size="xs">
-                                                {roundFlowCurrentDataTableMap(
-                                                    indexGD1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="red" fw="bold">
-                                                {roundPressureCurrentDataTableMap(
-                                                    pressureGD1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="black">
-                                                {convertDateToString(
-                                                    timeStampGD1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
+                                        {flowTd('GD1')}
+                                        {indexTd('GD1')}
+                                        {pressureTd('GD1')}
+                                        {timeTd('GD1')}
                                     </Table.Tr>
                                     <Table.Tr>
                                         <Table.Td>
@@ -402,34 +352,10 @@ const TableCurrentDataMap = ({
                                                 GD2
                                             </Text>
                                         </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    flowGD2,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text
-                                                size="xs"
-                                                c="blue"
-                                                fw="bold"
-                                            ></Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="red" fw="bold">
-                                                {roundPressureCurrentDataTableMap(
-                                                    pressureGD2,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="black">
-                                                {convertDateToString(
-                                                    timeStampGD2,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
+                                        {flowTd('GD2')}
+                                        {emptyTd()}
+                                        {pressureTd('GD2')}
+                                        {timeTd('GD2')}
                                     </Table.Tr>
                                     <Table.Tr>
                                         <Table.Td>
@@ -437,36 +363,13 @@ const TableCurrentDataMap = ({
                                                 GD3
                                             </Text>
                                         </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    flowGD3,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text
-                                                size="xs"
-                                                c="blue"
-                                                fw="bold"
-                                            ></Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="red" fw="bold">
-                                                {roundPressureCurrentDataTableMap(
-                                                    pressureGD3,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs">
-                                                {convertDateToString(
-                                                    timeStampGD3,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
+                                        {flowTd('GD3')}
+                                        {emptyTd()}
+                                        {pressureTd('GD3')}
+                                        {timeTd('GD3')}
                                     </Table.Tr>
 
+                                    {/* Nhà máy xử lý */}
                                     <Table.Tr>
                                         <Table.Td rowSpan={3}>
                                             <Text size="xs" fw="bold" c="red">
@@ -483,69 +386,21 @@ const TableCurrentDataMap = ({
                                                 GD1
                                             </Text>
                                         </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    flowNMGD1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    indexNMGD1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="red" fw="bold">
-                                                {roundPressureCurrentDataTableMap(
-                                                    pressureNMGD1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="black">
-                                                {convertDateToString(
-                                                    timeStampNMGD1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
+                                        {flowTd('NMGD1')}
+                                        {indexTd('NMGD1')}
+                                        {pressureTd('NMGD1')}
+                                        {timeTd('NMGD1')}
                                     </Table.Tr>
                                     <Table.Tr>
                                         <Table.Td>
                                             <Text size="xs" c="black">
-                                                GD2{' '}
+                                                GD2
                                             </Text>
                                         </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    flowNMGD2,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text
-                                                size="xs"
-                                                c="blue"
-                                                fw="bold"
-                                            ></Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="red" fw="bold">
-                                                {roundPressureCurrentDataTableMap(
-                                                    pressureNMGD2,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="black">
-                                                {convertDateToString(
-                                                    timeStampNMGD2,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
+                                        {flowTd('NMGD2')}
+                                        {emptyTd()}
+                                        {pressureTd('NMGD2')}
+                                        {timeTd('NMGD2')}
                                     </Table.Tr>
                                     <Table.Tr>
                                         <Table.Td>
@@ -553,36 +408,13 @@ const TableCurrentDataMap = ({
                                                 GD3
                                             </Text>
                                         </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    flowNMGD3,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text
-                                                size="xs"
-                                                c="blue"
-                                                fw="bold"
-                                            ></Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="red" fw="bold">
-                                                {roundPressureCurrentDataTableMap(
-                                                    pressureNMGD3,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="black">
-                                                {convertDateToString(
-                                                    timeStampNMGD3,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
+                                        {flowTd('NMGD3')}
+                                        {emptyTd()}
+                                        {pressureTd('NMGD3')}
+                                        {timeTd('NMGD3')}
                                     </Table.Tr>
 
+                                    {/* Trạm bơm 2 */}
                                     <Table.Tr>
                                         <Table.Td rowSpan={2}>
                                             <Text size="xs" fw="bold" c="red">
@@ -599,34 +431,10 @@ const TableCurrentDataMap = ({
                                                 TB II - 1
                                             </Text>
                                         </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    flowTB1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    indexTB1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="red" fw="bold">
-                                                {roundPressureCurrentDataTableMap(
-                                                    pressureTB1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="black">
-                                                {convertDateToString(
-                                                    timeStampTB1,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
+                                        {flowTd('TB1')}
+                                        {indexTd('TB1')}
+                                        {pressureTd('TB1')}
+                                        {timeTd('TB1')}
                                     </Table.Tr>
                                     <Table.Tr>
                                         <Table.Td>
@@ -634,36 +442,13 @@ const TableCurrentDataMap = ({
                                                 TB II - 2
                                             </Text>
                                         </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    flowTB2,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text
-                                                size="xs"
-                                                c="blue"
-                                                fw="bold"
-                                            ></Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="red" fw="bold">
-                                                {roundPressureCurrentDataTableMap(
-                                                    pressureTB2,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="black">
-                                                {convertDateToString(
-                                                    timeStampTB2,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
+                                        {flowTd('TB2')}
+                                        {emptyTd()}
+                                        {pressureTd('TB2')}
+                                        {timeTd('TB2')}
                                     </Table.Tr>
 
+                                    {/* Trạm bơm Tăng Áp Mỹ Lệ */}
                                     <Table.Tr>
                                         <Table.Td rowSpan={2}>
                                             <Text size="xs" fw="bold" c="red">
@@ -680,35 +465,10 @@ const TableCurrentDataMap = ({
                                                 TBTA - 1
                                             </Text>
                                         </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    flowTBTA,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="blue" fw="bold">
-                                                {roundFlowCurrentDataTableMap(
-                                                    indexTBTA,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs" c="red" fw="bold">
-                                                {roundPressureCurrentDataTableMap(
-                                                    pressureTBTA,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs">
-                                                {' '}
-                                                {convertDateToString(
-                                                    timeStampTBTA,
-                                                )}
-                                            </Text>
-                                        </Table.Td>
+                                        {flowTd('TBTA')}
+                                        {indexTd('TBTA')}
+                                        {pressureTd('TBTA')}
+                                        {timeTd('TBTA')}
                                     </Table.Tr>
                                     <Table.Tr>
                                         <Table.Td>
@@ -716,30 +476,10 @@ const TableCurrentDataMap = ({
                                                 TBTA - 2
                                             </Text>
                                         </Table.Td>
-                                        <Table.Td>
-                                            <Text
-                                                size="xs"
-                                                c="blue"
-                                                fw="bold"
-                                            ></Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text
-                                                size="xs"
-                                                c="blue"
-                                                fw="bold"
-                                            ></Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text
-                                                size="xs"
-                                                c="red"
-                                                fw="bold"
-                                            ></Text>
-                                        </Table.Td>
-                                        <Table.Td>
-                                            <Text size="xs"></Text>
-                                        </Table.Td>
+                                        {emptyTd()}
+                                        {emptyTd()}
+                                        {emptyTd()}
+                                        {emptyTd()}
                                     </Table.Tr>
                                 </Table.Tbody>
                             </Table>
@@ -751,4 +491,4 @@ const TableCurrentDataMap = ({
     );
 };
 
-export default TableCurrentDataMap;
+export default React.memo(TableCurrentDataMap);

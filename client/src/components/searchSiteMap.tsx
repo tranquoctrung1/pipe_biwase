@@ -1,3 +1,5 @@
+import React, { useCallback } from 'react';
+import Control from 'react-leaflet-custom-control';
 import {
     Transition,
     Flex,
@@ -10,7 +12,94 @@ import {
 } from '@mantine/core';
 import { IconSearch, IconPlus, IconMinus, IconX } from '@tabler/icons-react';
 
-import Control from 'react-leaflet-custom-control';
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+interface TreeNode {
+    label: string;
+    value: string;
+    children?: TreeNode[];
+}
+
+interface RenderNodeProps {
+    node: TreeNode;
+    expanded: boolean;
+    hasChildren: boolean;
+    elementProps: React.HTMLAttributes<HTMLElement>;
+}
+
+interface SearchSiteMapProps {
+    openFilterSite: boolean;
+    filterSite: TreeNode[];
+    filterSiteNS: TreeNode[];
+    handleFilterSiteChanged: (e: React.ChangeEvent<HTMLInputElement>) => void;
+    onSiteTreeClicked: (value: string) => void;
+    onSearhSiteCloseClicked: () => void;
+}
+
+// ---------------------------------------------------------------------------
+// SiteTree — shared sub-component for both water-type sections
+// ---------------------------------------------------------------------------
+
+interface SiteTreeProps {
+    title: string;
+    data: TreeNode[];
+    height: string;
+    onNodeClick: (value: string) => void;
+}
+
+const SiteTree = React.memo(
+    ({ title, data, height, onNodeClick }: SiteTreeProps) => {
+        const renderNode = useCallback(
+            ({
+                node,
+                expanded,
+                hasChildren,
+                elementProps,
+            }: RenderNodeProps) => (
+                <Group gap={10} {...elementProps}>
+                    {hasChildren && expanded ? (
+                        <IconMinus size="1.125rem" color="white" />
+                    ) : (
+                        <IconPlus size="1.125rem" color="white" />
+                    )}
+                    <Text
+                        size="sm"
+                        c="white"
+                        fw={500}
+                        onClick={() => onNodeClick(node.value)}
+                    >
+                        {node.label}
+                    </Text>
+                </Group>
+            ),
+            [onNodeClick],
+        );
+
+        return (
+            <div style={{ height }}>
+                <Center>
+                    <Text c="white" fw={600} tt="uppercase" size="1rem" my="sm">
+                        {title}
+                    </Text>
+                </Center>
+                <Tree
+                    data={data}
+                    style={{ height: '85%', overflowY: 'scroll' }}
+                    //@ts-ignore
+                    renderNode={renderNode}
+                />
+            </div>
+        );
+    },
+);
+
+SiteTree.displayName = 'SiteTree';
+
+// ---------------------------------------------------------------------------
+// SearchSiteMap
+// ---------------------------------------------------------------------------
 
 const SearchSiteMap = ({
     openFilterSite,
@@ -19,7 +108,7 @@ const SearchSiteMap = ({
     handleFilterSiteChanged,
     onSiteTreeClicked,
     onSearhSiteCloseClicked,
-}: any) => {
+}: SearchSiteMapProps) => {
     return (
         <Control position="topleft">
             <Transition
@@ -44,9 +133,10 @@ const SearchSiteMap = ({
                                 variant="transparent"
                                 onClick={onSearhSiteCloseClicked}
                             >
-                                <IconX size="1.125rem" color="white"></IconX>
+                                <IconX size="1.125rem" color="white" />
                             </ActionIcon>
                         </Flex>
+
                         <Flex justify="center" align="center">
                             <Input
                                 placeholder="Tìm kiếm điểm đo"
@@ -55,120 +145,22 @@ const SearchSiteMap = ({
                                 onChange={handleFilterSiteChanged}
                             />
                         </Flex>
+
                         <hr />
-                        <div
-                            style={{
-                                height: '25%',
-                            }}
-                        >
-                            <Center>
-                                <Text
-                                    c="white"
-                                    fw={600}
-                                    tt="uppercase"
-                                    size="1rem"
-                                    my="sm"
-                                >
-                                    Nước Thô
-                                </Text>
-                            </Center>
-                            <Tree
-                                data={filterSite}
-                                style={{ height: '80%', overflowY: 'scroll' }}
-                                renderNode={({
-                                    //@ts-ignore
-                                    node,
-                                    //@ts-ignore
-                                    expanded,
-                                    //@ts-ignore
-                                    hasChildren,
-                                    //@ts-ignore
-                                    elementProps,
-                                }) => (
-                                    <Group gap={10} {...elementProps}>
-                                        {hasChildren && expanded ? (
-                                            <IconMinus
-                                                size="1.125rem"
-                                                color="white"
-                                            />
-                                        ) : (
-                                            <IconPlus
-                                                size="1.125rem"
-                                                color="white"
-                                            />
-                                        )}
 
-                                        <Text
-                                            size="sm"
-                                            c="white"
-                                            fw={500}
-                                            onClick={() =>
-                                                onSiteTreeClicked(node.value)
-                                            }
-                                        >
-                                            {node.label}
-                                        </Text>
-                                    </Group>
-                                )}
-                            />
-                        </div>
+                        <SiteTree
+                            title="Nước Thô"
+                            data={filterSite}
+                            height="25%"
+                            onNodeClick={onSiteTreeClicked}
+                        />
 
-                        <div
-                            style={{
-                                height: '65%',
-                            }}
-                        >
-                            <Center>
-                                <Text
-                                    c="white"
-                                    fw={600}
-                                    tt="uppercase"
-                                    size="1rem"
-                                    my="sm"
-                                >
-                                    Nước Sạch
-                                </Text>
-                            </Center>
-                            <Tree
-                                data={filterSiteNS}
-                                style={{ height: '85%', overflowY: 'scroll' }}
-                                renderNode={({
-                                    //@ts-ignore
-                                    node,
-                                    //@ts-ignore
-                                    expanded,
-                                    //@ts-ignore
-                                    hasChildren,
-                                    //@ts-ignore
-                                    elementProps,
-                                }) => (
-                                    <Group gap={10} {...elementProps}>
-                                        {hasChildren && expanded ? (
-                                            <IconMinus
-                                                size="1.125rem"
-                                                color="white"
-                                            />
-                                        ) : (
-                                            <IconPlus
-                                                size="1.125rem"
-                                                color="white"
-                                            />
-                                        )}
-
-                                        <Text
-                                            size="sm"
-                                            c="white"
-                                            fw={500}
-                                            onClick={() =>
-                                                onSiteTreeClicked(node.value)
-                                            }
-                                        >
-                                            {node.label}
-                                        </Text>
-                                    </Group>
-                                )}
-                            />
-                        </div>
+                        <SiteTree
+                            title="Nước Sạch"
+                            data={filterSiteNS}
+                            height="65%"
+                            onNodeClick={onSiteTreeClicked}
+                        />
                     </div>
                 )}
             </Transition>
@@ -176,4 +168,4 @@ const SearchSiteMap = ({
     );
 };
 
-export default SearchSiteMap;
+export default React.memo(SearchSiteMap);

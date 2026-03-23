@@ -1,41 +1,39 @@
+import React from 'react';
 import { Polyline, Popup } from 'react-leaflet';
-import uuid from 'react-uuid';
 
-const PolyLineMap = ({ polylines }: any) => {
-    const convertPolyLine = (data: any) => {
-        const result = [];
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
-        if (data.length > 0) {
-            for (const item of data) {
-                const content = (
-                    <Polyline
-                        key={uuid()}
-                        pathOptions={{
-                            //@ts-ignore
-                            color: item.Color,
-                            //@ts-ignore
-                            weight: item.Weight,
-                        }}
-                        //@ts-ignore
-                        positions={item.Lines}
-                    >
-                        <Popup>
-                            {
-                                //@ts-ignore
-                                item.Content
-                            }
-                        </Popup>
-                    </Polyline>
-                );
+interface PolylineItem {
+    Lines: [[number, number], [number, number]];
+    Color?: string;
+    Weight?: number;
+    Content?: React.ReactNode[];
+}
 
-                result.push(content);
-            }
-        }
+interface PolyLineMapProps {
+    polylines: PolylineItem[];
+}
 
-        return result;
-    };
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
-    return convertPolyLine(polylines);
-};
+const PolyLineMap = ({ polylines }: PolyLineMapProps) => (
+    <>
+        {polylines.map((item, index) => (
+            <Polyline
+                // Index is safe here: the polylines array is only replaced on a
+                // full data refresh, never partially reordered at runtime.
+                key={index}
+                pathOptions={{ color: item.Color, weight: item.Weight }}
+                positions={item.Lines}
+            >
+                {item.Content && <Popup>{item.Content}</Popup>}
+            </Polyline>
+        ))}
+    </>
+);
 
-export default PolyLineMap;
+export default React.memo(PolyLineMap);
