@@ -677,44 +677,113 @@ const MapPage = () => {
         >
             <Grid>
                 <Grid.Col span={{ base: 12 }}>
-                    <MapContainerComponent>
-                        <SetMap
-                            mapRef={mapRef}
-                            onZoomChange={handleZoomChange}
-                        />
+                    <div style={{ position: 'relative' }}>
+                        <MapContainerComponent>
+                            <SetMap
+                                mapRef={mapRef}
+                                onZoomChange={handleZoomChange}
+                            />
 
-                        {/* Base satellite layer */}
-                        <TileLayer
-                            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                            url="http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
-                            maxNativeZoom={18}
-                            maxZoom={30}
-                        />
+                            {/* Base satellite layer */}
+                            <TileLayer
+                                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                url="http://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+                                maxNativeZoom={18}
+                                maxZoom={30}
+                            />
 
-                        {/* Optional street-map overlay */}
-                        <LayersControl position="topright">
-                            <LayersControl.Overlay name="bản đồ giao thông">
-                                <TileLayer
-                                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-                                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                                    maxNativeZoom={18}
-                                    maxZoom={30}
-                                />
-                            </LayersControl.Overlay>
-                        </LayersControl>
+                            {/* Optional street-map overlay */}
+                            <LayersControl position="topright">
+                                <LayersControl.Overlay name="bản đồ giao thông">
+                                    <TileLayer
+                                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                                        maxNativeZoom={18}
+                                        maxZoom={30}
+                                    />
+                                </LayersControl.Overlay>
+                            </LayersControl>
 
-                        <ShapeMap showRegion={showRegion} />
+                            <ShapeMap showRegion={showRegion} />
 
-                        <MarkerMap
-                            //@ts-ignore
-                            sites={sites}
-                            onpenChartModalClick={openChartModal}
-                            //@ts-ignore
-                            openModalChartSiteClick={openChartSiteModal}
-                            zoom={zoomMap}
-                        />
+                            <MarkerMap
+                                //@ts-ignore
+                                sites={sites}
+                                onpenChartModalClick={openChartModal}
+                                //@ts-ignore
+                                openModalChartSiteClick={openChartSiteModal}
+                                zoom={zoomMap}
+                            />
 
-                        <PolyLineMap polylines={polylines} />
+                            <PolyLineMap polylines={polylines} />
+
+                            <TableAlarmMap
+                                openAlarm={panels.alarm}
+                                //@ts-ignore
+                                data={tableData}
+                                onTableAlarmCloseClicked={closeAlarm}
+                            />
+
+                            <LegendMap openLegend={panels.legend} />
+
+                            <LostWaterMap
+                                openLostWater={panels.lostWater}
+                                onLostWaterCloseClicked={closeLostWater}
+                                onChartLostWaterNSClicked={
+                                    onChartLostWaterNSClicked
+                                }
+                                onChartLostWaterNTClicked={
+                                    onChartLostWaterNTClicked
+                                }
+                            />
+
+                            <SearchSiteMap
+                                openFilterSite={panels.filterSite}
+                                filterSite={filterSite}
+                                filterSiteNS={filterSiteNS}
+                                handleFilterSiteChanged={handleFilterSiteChanged}
+                                onSiteTreeClicked={onSiteTreeClicked}
+                                onSearhSiteCloseClicked={closeFilterSite}
+                            />
+
+                            <FilterGroupPipeMap
+                                groupPipe={groupPipe}
+                                openFilterGroupPipe={panels.filterGroupPipe}
+                                onGroupPipeChanged={onGroupPipeChanged}
+                                onFilterGroupPipeCloseClicked={
+                                    closeFilterGroupPipe
+                                }
+                                whiteBackgroundCurrentDataTable={whiteBackground}
+                                showRegion={showRegion}
+                                onWhiteBackgroundCurrentDataTableChanged={
+                                    onWhiteBackgroundChanged
+                                }
+                                onShowRegionChanged={onShowRegionChanged}
+                                alwaysOpenCurrentDataTable={
+                                    alwaysOpenCurrentDataTable
+                                }
+                                onAlwaysShowCurrentDataTable={
+                                    onAlwaysShowCurrentDataTable
+                                }
+                            />
+
+                            <TableCurrentDataMap
+                                openTableCurrentData={panels.tableCurrentData}
+                                onTabelCurrentDataCloseClicked={
+                                    closeTableCurrentData
+                                }
+                                whiteBackgroundCurrentDataTable={whiteBackground}
+                            />
+
+                            <TableCurrentPressureDataMap
+                                openTableCurrentPressureData={
+                                    panels.tableCurrentPressure
+                                }
+                                onTableCurrentPressureDataCloseClicked={
+                                    closeTableCurrentPressure
+                                }
+                            />
+                        </MapContainerComponent>
 
                         <ButtonMap
                             onAlarmTableClicked={toggleAlarm}
@@ -736,72 +805,7 @@ const MapPage = () => {
                                 panels.tableCurrentPressure
                             }
                         />
-
-                        <TableAlarmMap
-                            openAlarm={panels.alarm}
-                            //@ts-ignore
-                            data={tableData}
-                            onTableAlarmCloseClicked={closeAlarm}
-                        />
-
-                        <LegendMap openLegend={panels.legend} />
-
-                        <LostWaterMap
-                            openLostWater={panels.lostWater}
-                            onLostWaterCloseClicked={closeLostWater}
-                            onChartLostWaterNSClicked={
-                                onChartLostWaterNSClicked
-                            }
-                            onChartLostWaterNTClicked={
-                                onChartLostWaterNTClicked
-                            }
-                        />
-
-                        <SearchSiteMap
-                            openFilterSite={panels.filterSite}
-                            filterSite={filterSite}
-                            filterSiteNS={filterSiteNS}
-                            handleFilterSiteChanged={handleFilterSiteChanged}
-                            onSiteTreeClicked={onSiteTreeClicked}
-                            onSearhSiteCloseClicked={closeFilterSite}
-                        />
-
-                        <FilterGroupPipeMap
-                            groupPipe={groupPipe}
-                            openFilterGroupPipe={panels.filterGroupPipe}
-                            onGroupPipeChanged={onGroupPipeChanged}
-                            onFilterGroupPipeCloseClicked={closeFilterGroupPipe}
-                            whiteBackgroundCurrentDataTable={whiteBackground}
-                            showRegion={showRegion}
-                            onWhiteBackgroundCurrentDataTableChanged={
-                                onWhiteBackgroundChanged
-                            }
-                            onShowRegionChanged={onShowRegionChanged}
-                            alwaysOpenCurrentDataTable={
-                                alwaysOpenCurrentDataTable
-                            }
-                            onAlwaysShowCurrentDataTable={
-                                onAlwaysShowCurrentDataTable
-                            }
-                        />
-
-                        <TableCurrentDataMap
-                            openTableCurrentData={panels.tableCurrentData}
-                            onTabelCurrentDataCloseClicked={
-                                closeTableCurrentData
-                            }
-                            whiteBackgroundCurrentDataTable={whiteBackground}
-                        />
-
-                        <TableCurrentPressureDataMap
-                            openTableCurrentPressureData={
-                                panels.tableCurrentPressure
-                            }
-                            onTableCurrentPressureDataCloseClicked={
-                                closeTableCurrentPressure
-                            }
-                        />
-                    </MapContainerComponent>
+                    </div>
                 </Grid.Col>
             </Grid>
 

@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import Control from 'react-leaflet-custom-control';
 import { Button, Space, Text } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import {
@@ -136,27 +135,25 @@ const ButtonMap = ({
     );
 
     return (
-        <Control prepend position="topright">
-            <div style={{ position: 'relative', zIndex: 2000 }}>
-                {buttons.map(({ color, label, onClick, Icon }) => (
-                    <React.Fragment key={label}>
-                        <Button
-                            style={{ ...BUTTON_STYLE, background: color }}
-                            onClick={onClick}
-                        >
-                            {!mobile && (
-                                <>
-                                    <Text size="xs">{label}</Text>
-                                    <Space w="sm" />
-                                </>
-                            )}
-                            <Icon size="1.125rem" style={{ color: 'white' }} />
-                        </Button>
-                        <Space h="xs" />
-                    </React.Fragment>
-                ))}
-            </div>
-        </Control>
+        <div style={{ position: 'absolute', top: '10px', right: '10px', zIndex: 9999 }}>
+            {buttons.map(({ color, label, onClick, Icon }) => (
+                <React.Fragment key={label}>
+                    <Button
+                        style={{ ...BUTTON_STYLE, background: color }}
+                        onClick={onClick}
+                    >
+                        {!mobile && (
+                            <>
+                                <Text size="xs">{label}</Text>
+                                <Space w="sm" />
+                            </>
+                        )}
+                        <Icon size="1.125rem" style={{ color: 'white' }} />
+                    </Button>
+                    <Space h="xs" />
+                </React.Fragment>
+            ))}
+        </div>
     );
 };
 
