@@ -693,7 +693,7 @@ const MapPage = () => {
                             />
 
                             {/* Optional street-map overlay */}
-                            <LayersControl position="topright">
+                            <LayersControl position="topleft">
                                 <LayersControl.Overlay name="bản đồ giao thông">
                                     <TileLayer
                                         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
