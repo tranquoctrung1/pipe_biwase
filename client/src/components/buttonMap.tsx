@@ -137,7 +137,7 @@ const ButtonMap = ({
 
     return (
         <Control prepend position="topright">
-            <div>
+            <div style={{ position: 'relative', zIndex: 2000 }}>
                 {buttons.map(({ color, label, onClick, Icon }) => (
                     <React.Fragment key={label}>
                         <Button
