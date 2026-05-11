@@ -17,7 +17,7 @@ import uuid from 'react-uuid';
 import { debounce } from 'lodash';
 import { Button, Modal, ModalBody, ModalFooter, ModalHeader } from 'reactstrap';
 
-import ChartModal from '../components/chartModal';
+//import ChartModal from '../components/chartModal';
 import LegendMap from '../components/legendMap';
 import TableAlarmMap from '../components/tableAlarmMap';
 import LostWaterMap from '../components/lostWaterMap';
@@ -30,7 +30,7 @@ import ShapeMap from '../components/shapeMap';
 import MapContainerComponent from '../components/mapContainer';
 import TableCurrentDataMap from '../components/tableCurrentDataMap';
 import ChartLostWater from '../components/chartLostWater';
-import ChartSiteModal from '../components/chartSiteModal';
+//import ChartSiteModal from '../components/chartSiteModal';
 import TableCurrentPressureDataMap from '../components/tableCurrentPressureDataMap';
 import ChartSiteModalECharts from '../components/chartSiteModalECharts';
 import ChartModalECharts from '../components/chartModalECharts';
@@ -157,13 +157,15 @@ function getPipeWeight(size: number): number {
 }
 
 function getInitialPanelState(): PanelState {
-    const openTable = localStorage.getItem(STORAGE_KEY_OPEN_TABLE) === 'true';
+    const isMobile = window.innerWidth < 768;
+    const openTable =
+        !isMobile && localStorage.getItem(STORAGE_KEY_OPEN_TABLE) === 'true';
     return {
         alarm: false,
         lostWater: false,
         filterSite: false,
         filterGroupPipe: false,
-        legend: true,
+        legend: !isMobile,
         tableCurrentData: openTable,
         tableCurrentPressure: false,
     };
