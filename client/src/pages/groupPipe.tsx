@@ -58,8 +58,11 @@ const GroupPipePage = () => {
             .then((res) => {
                 if (res?.data?.GetGroupPipes) {
                     const temp = [];
+                    const seen = new Set();
 
                     for (const item of res.data.GetGroupPipes) {
+                        if (seen.has(item?.GroupPipeId)) continue;
+                        seen.add(item?.GroupPipeId);
                         const obj = {
                             value: item?.GroupPipeId,
                             label: item?.GroupPipeId,

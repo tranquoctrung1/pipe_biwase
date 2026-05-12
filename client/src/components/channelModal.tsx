@@ -67,8 +67,11 @@ const ChannelModal = () => {
             .then((res) => {
                 if (res?.data?.GetChannelByLoggerId) {
                     const temp = [];
+                    const seen = new Set();
 
                     for (const item of res.data.GetChannelByLoggerId) {
+                        if (seen.has(item?.ChannelId)) continue;
+                        seen.add(item?.ChannelId);
                         const obj = {
                             value: item?.ChannelId,
                             label: item?.ChannelId,

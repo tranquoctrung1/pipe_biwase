@@ -114,8 +114,11 @@ const SitePage = () => {
             .then((res) => {
                 if (res?.data?.GetSites) {
                     const temp = [];
+                    const seen = new Set();
 
                     for (const item of res.data.GetSites) {
+                        if (seen.has(item?.SiteId)) continue;
+                        seen.add(item?.SiteId);
                         const obj = {
                             value: item?.SiteId,
                             label: `${item?.SiteId} - ${item?.Location}`,
@@ -160,8 +163,11 @@ const SitePage = () => {
             .then((res) => {
                 if (res?.data?.GetDisplayGroups) {
                     const temp = [];
+                    const seen = new Set();
 
                     for (const item of res.data.GetDisplayGroups) {
+                        if (seen.has(item?.Group)) continue;
+                        seen.add(item?.Group);
                         const obj = {
                             value: item?.Group,
                             label: `${item?.Group}`,

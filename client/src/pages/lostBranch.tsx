@@ -57,8 +57,11 @@ const LostBranchPage = () => {
             .then((res) => {
                 if (res?.data?.GetBranchs) {
                     const temp = [];
+                    const seen = new Set();
 
                     for (const item of res.data.GetBranchs) {
+                        if (seen.has(item?.BranchId)) continue;
+                        seen.add(item?.BranchId);
                         const obj = {
                             label: item?.BranchId,
                             value: item?.BranchId,

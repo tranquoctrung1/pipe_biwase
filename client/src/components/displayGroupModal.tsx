@@ -57,8 +57,11 @@ const DisplayGroupModal = () => {
             .then((res) => {
                 if (res?.data?.GetDisplayGroups) {
                     const temp = [];
+                    const seen = new Set();
 
                     for (const item of res.data.GetDisplayGroups) {
+                        if (seen.has(item?.Group)) continue;
+                        seen.add(item?.Group);
                         const obj = {
                             value: item?.Group,
                             label: `${item?.Group}`,

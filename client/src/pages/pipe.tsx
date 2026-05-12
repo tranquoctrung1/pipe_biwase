@@ -76,8 +76,11 @@ const PipePage = () => {
             .then((res) => {
                 if (res?.data?.GetPipes) {
                     const temp = [];
+                    const seen = new Set();
 
                     for (const item of res.data.GetPipes) {
+                        if (seen.has(item?.PipeId)) continue;
+                        seen.add(item?.PipeId);
                         const obj = {
                             value: item?.PipeId,
                             label: item?.PipeId,

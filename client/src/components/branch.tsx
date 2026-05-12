@@ -47,8 +47,11 @@ const BranchComponent = () => {
             .then((res) => {
                 if (res?.data?.GetBranchs) {
                     const temp = [];
+                    const seen = new Set();
 
                     for (const item of res.data.GetBranchs) {
+                        if (seen.has(item?.BranchId)) continue;
+                        seen.add(item?.BranchId);
                         const obj = {
                             value: item?.BranchId,
                             label: item?.BranchId,
