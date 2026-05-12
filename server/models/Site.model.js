@@ -184,6 +184,12 @@ module.exports.Insert = async (site) => {
 
     let collection = await Connect.connect(SiteCollection);
 
+    const existing = await collection.findOne({ SiteId: site.SiteId });
+    if (existing) {
+        Connect.disconnect();
+        throw new Error(`SiteId "${site.SiteId}" đã tồn tại`);
+    }
+
     site.Type = +site.Type;
 
     let result = await collection.insertOne(site);
@@ -197,6 +203,15 @@ module.exports.Update = async (site) => {
     let Connect = new ConnectDB.Connect();
 
     let collection = await Connect.connect(SiteCollection);
+
+    const conflict = await collection.findOne({
+        SiteId: site.SiteId,
+        _id: { $ne: new ObjectId(site._id) },
+    });
+    if (conflict) {
+        Connect.disconnect();
+        throw new Error(`SiteId "${site.SiteId}" đã tồn tại`);
+    }
 
     let result = await collection.updateMany(
         { _id: new ObjectId(site._id) },

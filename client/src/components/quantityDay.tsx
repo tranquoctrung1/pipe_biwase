@@ -83,7 +83,7 @@ const QuantityDayComponent = () => {
                     }
 
                     //@ts-ignore
-                    setListSite([...temp]);
+                    setListSite([...new Set(temp)]);
 
                     //@ts-ignore
                     setSiteData([...res.data.GetSiteIsMeter]);

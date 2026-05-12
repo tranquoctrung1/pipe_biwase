@@ -52,6 +52,12 @@ module.exports.Insert = async (pipe) => {
 
     let collection = await Connect.connect(PipeCollection);
 
+    const existing = await collection.findOne({ PipeId: pipe.PipeId });
+    if (existing) {
+        Connect.disconnect();
+        throw new Error(`PipeId "${pipe.PipeId}" đã tồn tại`);
+    }
+
     pipe.SetPrioritize =
         pipe.SetPrioritize !== undefined
             ? +pipe.SetPrioritize
@@ -68,6 +74,15 @@ module.exports.Update = async (pipe) => {
     let Connect = new ConnectDB.Connect();
 
     let collection = await Connect.connect(PipeCollection);
+
+    const conflict = await collection.findOne({
+        PipeId: pipe.PipeId,
+        _id: { $ne: new ObjectId(pipe._id) },
+    });
+    if (conflict) {
+        Connect.disconnect();
+        throw new Error(`PipeId "${pipe.PipeId}" đã tồn tại`);
+    }
 
     let result = await collection.updateMany(
         { _id: new ObjectId(pipe._id) },

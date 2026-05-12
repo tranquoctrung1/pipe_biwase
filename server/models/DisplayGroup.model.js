@@ -28,6 +28,12 @@ module.exports.Insert = async (displayGroup) => {
 
     let collection = await Connect.connect(DisplayGroupCollection);
 
+    const existing = await collection.findOne({ Group: displayGroup.Group });
+    if (existing) {
+        Connect.disconnect();
+        throw new Error(`Nhóm hiển thị "${displayGroup.Group}" đã tồn tại`);
+    }
+
     let result = await collection.insertOne(displayGroup);
 
     Connect.disconnect();
@@ -39,6 +45,15 @@ module.exports.Update = async (displayGroup) => {
     let Connect = new ConnectDB.Connect();
 
     let collection = await Connect.connect(DisplayGroupCollection);
+
+    const conflict = await collection.findOne({
+        Group: displayGroup.Group,
+        _id: { $ne: new ObjectId(displayGroup._id) },
+    });
+    if (conflict) {
+        Connect.disconnect();
+        throw new Error(`Nhóm hiển thị "${displayGroup.Group}" đã tồn tại`);
+    }
 
     let result = await collection.updateMany(
         { _id: new ObjectId(displayGroup._id) },

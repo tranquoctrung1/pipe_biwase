@@ -207,11 +207,10 @@ const GroupPipePage = () => {
                     }
                 })
                 .catch((err) => {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Oops...',
-                        text: 'Thêm nhóm tuyến ống không thành công',
-                    });
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Thêm nhóm tuyến ống không thành công';
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: msg });
                     console.log(err);
                 });
         }
@@ -276,11 +275,10 @@ const GroupPipePage = () => {
                     }
                 })
                 .catch((err) => {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Oops...',
-                        text: 'Cập nhật nhóm tuyến ống không thành công',
-                    });
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Cập nhật nhóm tuyến ống không thành công';
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: msg });
                     console.log(err);
                 });
         }

@@ -175,11 +175,10 @@ const DisplayGroupModal = () => {
                     }
                 })
                 .catch((err) => {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Oops...',
-                        text: 'Thêm nhóm hiển thị không thành công',
-                    });
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Thêm nhóm hiển thị không thành công';
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: msg });
                     console.log(err);
                 });
         }
@@ -246,11 +245,10 @@ const DisplayGroupModal = () => {
                     }
                 })
                 .catch((err) => {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Oops...',
-                        text: 'Cập nhật nhóm hiển thị không thành công',
-                    });
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Cập nhật nhóm hiển thị không thành công';
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: msg });
                     console.log(err);
                 });
         }

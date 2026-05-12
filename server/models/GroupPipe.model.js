@@ -40,6 +40,12 @@ module.exports.Insert = async (groupPipe) => {
 
     let collection = await Connect.connect(GroupPipeCollection);
 
+    const existing = await collection.findOne({ GroupPipeId: groupPipe.GroupPipeId });
+    if (existing) {
+        Connect.disconnect();
+        throw new Error(`GroupPipeId "${groupPipe.GroupPipeId}" đã tồn tại`);
+    }
+
     let result = await collection.insertOne(groupPipe);
 
     Connect.disconnect();
@@ -51,6 +57,15 @@ module.exports.Update = async (groupPipe) => {
     let Connect = new ConnectDB.Connect();
 
     let collection = await Connect.connect(GroupPipeCollection);
+
+    const conflict = await collection.findOne({
+        GroupPipeId: groupPipe.GroupPipeId,
+        _id: { $ne: new ObjectId(groupPipe._id) },
+    });
+    if (conflict) {
+        Connect.disconnect();
+        throw new Error(`GroupPipeId "${groupPipe.GroupPipeId}" đã tồn tại`);
+    }
 
     let result = await collection.updateMany(
         { _id: new ObjectId(groupPipe._id) },

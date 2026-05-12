@@ -241,11 +241,10 @@ const PipePage = () => {
                     }
                 })
                 .catch((err) => {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Oops...',
-                        text: 'Thêm tuyến ống không thành công',
-                    });
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Thêm tuyến ống không thành công';
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: msg });
                     console.log(err);
                 });
         }
@@ -307,11 +306,10 @@ const PipePage = () => {
                     }
                 })
                 .catch((err) => {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Oops...',
-                        text: 'Cập nhật tuyến ống không thành công',
-                    });
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Cập nhật tuyến ống không thành công';
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: msg });
                     console.log(err);
                 });
         }

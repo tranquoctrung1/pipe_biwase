@@ -233,11 +233,10 @@ const ChannelModal = () => {
                     }
                 })
                 .catch((err) => {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Oops...',
-                        text: 'Thêm kênh không thành công',
-                    });
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Thêm kênh không thành công';
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: msg });
                     console.log(err);
                 });
         }
@@ -333,11 +332,10 @@ const ChannelModal = () => {
                     }
                 })
                 .catch((err) => {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Oops...',
-                        text: 'Cập nhật kênh không thành công',
-                    });
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Cập nhật kênh không thành công';
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: msg });
                     console.log(err);
                 });
         }

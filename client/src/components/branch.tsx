@@ -156,11 +156,10 @@ const BranchComponent = () => {
                     }
                 })
                 .catch((err) => {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Oops...',
-                        text: 'Thêm nhánh không thành công',
-                    });
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Thêm nhánh không thành công';
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: msg });
                     console.log(err);
                 });
         }
@@ -225,11 +224,10 @@ const BranchComponent = () => {
                     }
                 })
                 .catch((err) => {
-                    Swal.fire({
-                        icon: 'error',
-                        title: 'Oops...',
-                        text: 'Cập nhật nhánh không thành công',
-                    });
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Cập nhật nhánh không thành công';
+                    Swal.fire({ icon: 'error', title: 'Oops...', text: msg });
                     console.log(err);
                 });
         }

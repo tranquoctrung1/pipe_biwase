@@ -93,6 +93,12 @@ module.exports.Insert = async (channel) => {
 
     let collection = await Connect.connect(ChannelConfigCollection);
 
+    const existing = await collection.findOne({ ChannelId: channel.ChannelId });
+    if (existing) {
+        Connect.disconnect();
+        throw new Error(`ChannelId "${channel.ChannelId}" đã tồn tại`);
+    }
+
     let result = await collection.insertOne(channel);
 
     await Connect.createCollection(`t_Data_Logger_${channel.ChannelId}`);
@@ -112,6 +118,15 @@ module.exports.Update = async (channel) => {
     let Connect = new ConnectDB.Connect();
 
     let collection = await Connect.connect(ChannelConfigCollection);
+
+    const conflict = await collection.findOne({
+        ChannelId: channel.ChannelId,
+        _id: { $ne: new ObjectId(channel._id) },
+    });
+    if (conflict) {
+        Connect.disconnect();
+        throw new Error(`ChannelId "${channel.ChannelId}" đã tồn tại`);
+    }
 
     let result = await collection.updateMany(
         { _id: new ObjectId(channel._id) },

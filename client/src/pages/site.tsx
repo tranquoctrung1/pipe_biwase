@@ -368,10 +368,13 @@ const SitePage = () => {
                     }
                 })
                 .catch((err) => {
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Thêm điểm lắp đặt không thành công';
                     Swal.fire({
                         icon: 'error',
                         title: 'Oops...',
-                        text: 'Thêm điểm lăp đặt không thành công',
+                        text: msg,
                     });
                     console.log(err);
                 });
@@ -461,10 +464,13 @@ const SitePage = () => {
                     }
                 })
                 .catch((err) => {
+                    const msg =
+                        err?.graphQLErrors?.[0]?.message ||
+                        'Cập nhật điểm lắp đặt không thành công';
                     Swal.fire({
                         icon: 'error',
                         title: 'Oops...',
-                        text: 'Cập nhật điểm lăp đặt không thành công',
+                        text: msg,
                     });
                     console.log(err);
                 });

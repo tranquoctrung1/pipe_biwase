@@ -58,6 +58,12 @@ module.exports.Insert = async (branch) => {
 
     let collection = await Connect.connect(BranchCollection);
 
+    const existing = await collection.findOne({ BranchName: branch.BranchName });
+    if (existing) {
+        Connect.disconnect();
+        throw new Error(`Tuyến "${branch.BranchName}" đã tồn tại`);
+    }
+
     let result = await collection.insertOne(branch);
 
     Connect.disconnect();
@@ -69,6 +75,15 @@ module.exports.Update = async (branch) => {
     let Connect = new ConnectDB.Connect();
 
     let collection = await Connect.connect(BranchCollection);
+
+    const conflict = await collection.findOne({
+        BranchName: branch.BranchName,
+        _id: { $ne: new ObjectId(branch._id) },
+    });
+    if (conflict) {
+        Connect.disconnect();
+        throw new Error(`Tuyến "${branch.BranchName}" đã tồn tại`);
+    }
 
     let result = await collection.updateMany(
         { _id: new ObjectId(branch._id) },
